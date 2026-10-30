@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400" fill="none">
+  <rect width="300" height="400" fill="#e7e5e4"/>
+  <!-- Hanger -->
+  <path d="M150 60 Q150 40 170 40 Q180 40 180 50 Q180 58 170 58 L150 80" stroke="#a8a29e" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <!-- T-shirt body -->
+  <path d="M90 90 L60 130 L90 140 L90 280 L210 280 L210 140 L240 130 L210 90 L180 110 Q150 100 120 110 Z" fill="#d6d3d1" stroke="#c4c0bc" stroke-width="2" stroke-linejoin="round"/>
+  <!-- Collar -->
+  <path d="M120 110 Q150 125 180 110" stroke="#b8b5b2" stroke-width="2" fill="none" stroke-linecap="round"/>
+</svg>

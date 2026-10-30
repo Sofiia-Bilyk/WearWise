@@ -1,0 +1,54 @@
+# Environments
+venv/
+.venv/
+env/
+.env
+
+# Python compilation and execution
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Application Data
+# Exclude local database and uploaded assets
+wearwise_app/uploads/
+uploads/
+**/instance/
+*.db
+*.sqlite3
+.env
+.env.local
+
+# ML model weight files (large binaries, auto-downloaded at runtime)
+*.pt
+*.pth
+*.onnx
+*.bin
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Node modules and build output
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Editor and OS-specific files
+.vscode/
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.sln
+*.sw?
+
+# Database Files
+*.db
+*.sqlite3

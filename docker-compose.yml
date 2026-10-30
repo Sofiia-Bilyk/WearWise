@@ -1,0 +1,32 @@
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: wearwise-backend
+    environment:
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - PRODUCTION=false
+      - SQLALCHEMY_DATABASE_URI=sqlite:////app/instance/database.db
+      - ML_MODEL_FALLBACK=wearwise_app/yolov8n.pt
+      - CORS_ORIGINS=http://localhost
+    volumes:
+      - wearwise-db:/app/instance
+      - wearwise-uploads:/app/wearwise_app/uploads
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: wearwise-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  wearwise-db:
+  wearwise-uploads:
