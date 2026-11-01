@@ -83,12 +83,31 @@ class Item(UserOwnedModel):
     archived_at = db.Column(db.DateTime, nullable=True)  # soft-delete marker
     postponed_until = db.Column(db.Date, nullable=True)  # snooze "forgotten" reminders
 
+    embedding = db.relationship(
+        'ItemEmbedding', back_populates='item', uselist=False,
+        cascade='all, delete-orphan',
+    )
+
     tags = db.relationship(
         'ItemTag', backref='item', lazy=True, cascade="all, delete-orphan"
     )
     outfit_items = db.relationship(
         'OutfitItem', backref='item', lazy=True, cascade="all, delete-orphan"
     )
+
+
+class ItemEmbedding(db.Model):
+    """Server-generated vector for one item photo; never accepted from clients."""
+    item_id = db.Column(db.Integer, db.ForeignKey('item.id'), primary_key=True)
+    vector = db.Column(db.JSON, nullable=True)
+    model_id = db.Column(db.String(120), nullable=True)
+    model_revision = db.Column(db.String(80), nullable=True)
+    pipeline_version = db.Column(db.String(50), nullable=True)
+    image_sha256 = db.Column(db.String(64), nullable=True)
+    source_image_path = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(24), nullable=False, default='pending')
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    item = db.relationship('Item', back_populates='embedding')
 
 
 class ItemTag(UserOwnedModel):

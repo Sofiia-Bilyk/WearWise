@@ -1,188 +1,169 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { useWardrobe } from '../contexts/WardrobeContext';
-import { Category, ClothingItem } from '../types';
+import type { ClothingItem } from '../types';
 import { WardrobePickerModal } from '../components/WardrobePickerModal';
+import { CreateItemModal } from '../components/CreateItemModal';
+import { UnrecognizedGarmentModal } from '../components/UnrecognizedGarmentModal';
 import { CameraStage } from '../components/CameraStage';
 import { DetectionPanel } from '../components/DetectionPanel';
-import { DetectedItemEditForm } from '../components/DetectedItemRow';
 import { useCameraCapture } from '../hooks/useCameraCapture';
 import { useImageUpload } from '../hooks/useImageUpload';
 import { useDetection } from '../hooks/useDetection';
+import { useGarmentResolution } from '../hooks/useGarmentResolution';
+import { buildSavePlan } from '../state/garmentResolution';
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+type Selection = { kind: 'wardrobe' | 'new'; detectionId: string | null } | null;
 
-/**
- * "Log a look" page: stitches the camera/upload stage with the detection
- * panel, and persists the chosen items as an outfit.
- */
+/** Detect -> identify unmatched crops -> review draft -> confirm the daily log. */
 export const CameraView: React.FC = () => {
   const { wardrobe, addOutfit, addItem } = useWardrobe();
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [selectedDate, setSelectedDate] = useState(today);
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<DetectedItemEditForm>({
-    name: '',
-    category: 'Top',
-    color: '',
-  });
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selection, setSelection] = useState<Selection>(null);
   const [isLogging, setIsLogging] = useState(false);
   const [isLogSuccess, setIsLogSuccess] = useState(false);
   const [logError, setLogError] = useState('');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [capturedFile, setCapturedFile] = useState<File | null>(null);
+  const savingRef = useRef(false);
+  // Remember successfully created items if a later request fails during saving.
+  const savedItems = useRef(new Map<string, ClothingItem>());
+  const detector = useDetection();
+  const draft = useGarmentResolution();
+  const wardrobeRef = useRef(wardrobe);
+  wardrobeRef.current = wardrobe;
+  const currentDateValid = /^\d{4}-\d{2}-\d{2}$/.test(selectedDate);
 
-  const {
-    isDetecting,
-    detectedItems,
-    setDetectedItems,
-    apiError,
-    noDetectionMsg,
-    runDetection,
-    resetDetection,
-  } = useDetection();
-
-  const {
-    uploadedImage,
-    uploadedFile,
-    conversionError,
-    handleFileUpload,
-    reset: resetUpload,
-  } = useImageUpload(runDetection);
-
-  const { videoRef, canvasRef, permissionError, startCamera, captureFrame } =
-    useCameraCapture((dataUrl, file) => {
-      setCapturedFile(file);
-      setCapturedImage(dataUrl);
-      runDetection(dataUrl);
-    });
-
-  // Uploaded file wins over the captured frame so the user's explicit choice sticks.
-  const outfitFile = uploadedFile ?? capturedFile;
-  const previewImage = uploadedImage || capturedImage;
-
-  const handleRetry = () => {
-    resetDetection();
-    resetUpload();
-    setCapturedFile(null);
-    setCapturedImage(null);
-    setLogError('');
-    setIsLogSuccess(false);
-    setEditingItemId(null);
+  const runDetection = async (image: string) => {
+    if (savingRef.current) return;
+    draft.reset(); setSelection(null); savedItems.current.clear();
+    setIsLogSuccess(false); setLogError('');
+    const detections = await detector.runDetection(image);
+    if (detections) draft.begin(detections, wardrobeRef.current);
   };
+  const upload = useImageUpload(runDetection);
+  const camera = useCameraCapture((dataUrl, file) => {
+    if (savingRef.current) return;
+    upload.reset(); setCapturedFile(file); setCapturedImage(dataUrl);
+    void runDetection(dataUrl);
+  });
+  const outfitFile = upload.uploadedFile ?? capturedFile;
+  const previewImage = upload.uploadedImage || capturedImage;
+
+  // Changing accounts must not leave another account's draft or photo visible.
+  const { user } = useAuth();
+  const accountId = useRef(user?.id);
+  useEffect(() => {
+    if (accountId.current !== user?.id) { accountId.current = user?.id; handleRetry(); }
+  }, [user?.id]);
+
+  function handleRetry() {
+    if (savingRef.current) return;
+    detector.resetDetection(); draft.reset(); upload.reset();
+    setSelection(null); savedItems.current.clear();
+    setCapturedFile(null); setCapturedImage(null); setLogError(''); setIsLogSuccess(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
 
   const handleLogOutfit = async () => {
-    if (detectedItems.length === 0) return;
-    setIsLogging(true);
-    setLogError('');
+    if (savingRef.current || detector.isDetecting || isLogSuccess) return;
+    if (!currentDateValid) { setLogError('Choose a date for this daily log.'); return; }
     try {
-      const realItems = await Promise.all(
-        detectedItems.map((item) =>
-          item.id.startsWith('det-') ? addItem(item) : Promise.resolve(item)
-        )
-      );
-      await addOutfit(realItems, selectedDate, outfitFile);
+      // Validate every choice before creating any wardrobe entries.
+      const knownItems = [...wardrobe, ...savedItems.current.values()];
+      const plan = buildSavePlan(draft.garments, knownItems);
+      savingRef.current = true; setIsLogging(true); setLogError('');
+      const realItems: ClothingItem[] = [];
+      for (const entry of plan) {
+        let item = entry.item;
+        if (entry.kind === 'new') {
+          item = savedItems.current.get(entry.detectionId) ?? await addItem(entry.item);
+          savedItems.current.set(entry.detectionId, item);
+          draft.resolve(entry.detectionId, { kind: 'existing', itemId: item.id });
+        }
+        realItems.push(item);
+      }
+      await addOutfit([...new Map(realItems.map(item => [item.id, item])).values()], selectedDate, outfitFile);
       setIsLogSuccess(true);
-      setTimeout(handleRetry, 3000);
-    } catch (err: unknown) {
-      setLogError(err instanceof Error ? err.message : 'Failed to log outfit');
+    } catch (error: unknown) {
+      setLogError(error instanceof Error ? error.message : 'Could not save the daily log. Please try again.');
     } finally {
-      setIsLogging(false);
+      savingRef.current = false; setIsLogging(false);
     }
   };
 
-  const startEditing = (item: ClothingItem) => {
-    setEditingItemId(item.id);
-    setEditForm({ name: item.name, category: item.category, color: item.color });
+  const target = selection?.detectionId
+    ? draft.garments.find(row => row.detection.id === selection.detectionId) : null;
+  const initialItem = target?.resolution?.kind === 'new' ? target.resolution.item : target?.detection;
+  const selectExisting = (item: ClothingItem) => {
+    if (selection?.detectionId) draft.resolve(selection.detectionId, { kind: 'existing', itemId: item.id });
+    else draft.append(item, true);
+    setSelection(null);
   };
-
-  const saveEditing = (id: string) => {
-    setDetectedItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, ...editForm } : item))
-    );
-    setEditingItemId(null);
+  const confirmNew = (item: ClothingItem) => {
+    if (selection?.detectionId) draft.resolve(selection.detectionId, { kind: 'new', item });
+    else draft.append(item, false);
+    setSelection(null);
   };
-
-  const createBlankItem = () => {
-    const newItem: ClothingItem = {
-      id: `det-manual-${Date.now()}`,
-      name: 'New Item',
-      category: 'Top' as Category,
-      color: '',
-      image: '',
-      brand: '',
-      addedDate: today(),
-      wearCount: 0,
-      lastWorn: 'Never',
-    };
-    setDetectedItems((prev) => [...prev, newItem]);
-    startEditing(newItem);
-    setIsModalOpen(false);
+  const displayItems = draft.garments.map(row => {
+    const choice = row.resolution;
+    const item = choice?.kind === 'existing'
+      ? wardrobe.find(item => item.id === choice.itemId) ?? savedItems.current.get(row.detection.id) ?? row.detection
+      : choice?.kind === 'new' ? choice.item : row.detection;
+    // Actions address the stable detection ID, not the selected wardrobe ID.
+    return { ...item, id: row.detection.id };
+  });
+  const changeItem = (id: string) => {
+    const row = draft.garments.find(row => row.detection.id === id);
+    if (row?.resolution?.kind === 'new') setSelection({ kind: 'new', detectionId: id });
+    else draft.reconsider(id);
   };
-
-  const removeDetectedItem = (id: string) =>
-    setDetectedItems((prev) => prev.filter((item) => item.id !== id));
-
-  const addItemFromWardrobe = (item: ClothingItem) => {
-    if (!detectedItems.find((i) => i.id === item.id)) {
-      setDetectedItems((prev) => [...prev, item]);
-    }
-    setIsModalOpen(false);
-  };
-
-  const openFilePicker = () => fileInputRef.current?.click();
 
   return (
-    <div className="flex h-[calc(100vh-80px)] w-full overflow-hidden bg-stone-900">
+    <div className="flex flex-col lg:flex-row h-[calc(100dvh-80px)] w-full overflow-y-auto lg:overflow-hidden bg-stone-900">
       <CameraStage
-        videoRef={videoRef}
-        canvasRef={canvasRef}
-        fileInputRef={fileInputRef}
-        previewImage={previewImage}
-        permissionError={permissionError}
-        isDetecting={isDetecting}
-        isLogSuccess={isLogSuccess}
-        detectedItems={detectedItems}
-        apiError={apiError}
-        conversionError={conversionError}
-        noDetectionMsg={noDetectionMsg}
-        onStartCamera={startCamera}
-        onCapture={captureFrame}
-        onUploadClick={openFilePicker}
-        onFileChange={handleFileUpload}
-        onRetry={handleRetry}
+        videoRef={camera.videoRef} canvasRef={camera.canvasRef} fileInputRef={fileInputRef}
+        previewImage={previewImage} permissionError={camera.permissionError}
+        isDetecting={detector.isDetecting} isLogSuccess={isLogSuccess}
+        detectedItems={draft.garments.map(row => row.detection)} apiError={detector.apiError}
+        conversionError={upload.conversionError} noDetectionMsg={detector.noDetectionMsg}
+        disabled={isLogging || isLogSuccess}
+        onStartCamera={camera.startCamera} onCapture={camera.captureFrame}
+        onUploadClick={() => fileInputRef.current?.click()}
+        onFileChange={upload.handleFileUpload} onRetry={handleRetry}
       />
-
-      <DetectionPanel
-        selectedDate={selectedDate}
-        onDateChange={setSelectedDate}
-        detectedItems={detectedItems}
-        isDetecting={isDetecting}
-        isLogSuccess={isLogSuccess}
-        isLogging={isLogging}
-        hasPreviewImage={!!previewImage}
-        logError={logError}
-        editingItemId={editingItemId}
-        editForm={editForm}
-        onEditFormChange={setEditForm}
-        onStartEdit={startEditing}
-        onSaveEdit={saveEditing}
-        onRemoveItem={removeDetectedItem}
-        onUploadClick={openFilePicker}
-        onBrowseWardrobe={() => setIsModalOpen(true)}
-        onCreateBlank={createBlankItem}
-        onLogOutfit={handleLogOutfit}
-        onRetry={handleRetry}
+      <DetectionPanel selectedDate={selectedDate} onDateChange={setSelectedDate}
+        detectedItems={displayItems} garments={draft.garments}
+        isDetecting={detector.isDetecting} isLogSuccess={isLogSuccess} isLogging={isLogging}
+        canSubmit={draft.canSubmit && currentDateValid} unresolvedCount={draft.unresolvedCount}
+        hasPreviewImage={!!previewImage} logError={logError}
+        onChangeItem={changeItem} onRemoveItem={draft.remove} onResume={draft.resume}
+        onUploadClick={() => fileInputRef.current?.click()}
+        onBrowseWardrobe={() => setSelection({ kind: 'wardrobe', detectionId: null })}
+        onCreateBlank={() => setSelection({ kind: 'new', detectionId: null })}
+        onLogOutfit={handleLogOutfit} onRetry={handleRetry}
       />
-
-      {isModalOpen && (
-        <WardrobePickerModal
-          wardrobe={wardrobe}
-          onSelect={addItemFromWardrobe}
-          onCreateBlank={createBlankItem}
-          onClose={() => setIsModalOpen(false)}
-        />
+      {draft.currentGarment && !selection && !isLogging && !isLogSuccess && (
+        <UnrecognizedGarmentModal key={draft.currentGarment.detection.id}
+          item={draft.currentGarment.detection} remainingCount={draft.unresolvedCount}
+          onFindInWardrobe={() => setSelection({ kind: 'wardrobe', detectionId: draft.currentGarment!.detection.id })}
+          onCreateNew={() => setSelection({ kind: 'new', detectionId: draft.currentGarment!.detection.id })}
+          onPause={draft.pause} />
+      )}
+      {selection?.kind === 'wardrobe' && (
+        <WardrobePickerModal wardrobe={wardrobe} onSelect={selectExisting}
+          onCreateBlank={() => setSelection({ ...selection, kind: 'new' })}
+          onClose={() => setSelection(null)} />
+      )}
+      {selection?.kind === 'new' && (
+        <CreateItemModal key={selection.detectionId ?? 'manual'} initialItem={initialItem}
+          title="New item for this look" submitLabel="Add to draft"
+          onCreateItem={confirmNew} onClose={() => setSelection(null)} />
       )}
     </div>
   );

@@ -252,3 +252,24 @@ class TestOutfitToDict:
             result = outfit_to_dict(outfit)
             
             assert result['imagePath'] is None
+
+
+@pytest.mark.parametrize('timestamp,expected', [
+    (datetime(2026, 11, 1, 20, 15), '2026-11-01T20:15:00+00:00'),
+    (None, None),
+])
+def test_outfit_entry_timestamp_is_explicitly_utc(timestamp, expected):
+    from types import SimpleNamespace
+    outfit = SimpleNamespace(id=1, worn_date=date(2026, 11, 1), logged_at=timestamp,
+                             outfit_items=[], image_path=None)
+    assert outfit_to_dict(outfit)['loggedAt'] == expected
+    assert outfit.logged_at is timestamp  # Serialization must not mutate records.
+
+
+def test_outfit_aware_entry_timestamp_keeps_its_offset():
+    from datetime import timezone, timedelta
+    from types import SimpleNamespace
+    stamp = datetime(2026, 11, 1, 20, 15, tzinfo=timezone(timedelta(hours=2)))
+    outfit = SimpleNamespace(id=1, worn_date=date(2026, 11, 1), logged_at=stamp,
+                             outfit_items=[], image_path=None)
+    assert outfit_to_dict(outfit)['loggedAt'] == '2026-11-01T20:15:00+02:00'

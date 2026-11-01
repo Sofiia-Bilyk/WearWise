@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { ClothingItem, Outfit } from '../types';
+import { formatEntryTime, formatOutfitDay } from '../utils/outfitHistory';
 
 interface OutfitDetailModalProps {
   outfit: Outfit;
@@ -21,7 +22,8 @@ export const OutfitDetailModal: React.FC<OutfitDetailModalProps> = ({ outfit, wa
         <div className="p-8 border-b border-stone-100 flex items-center justify-between">
           <div>
             <h3 className="text-2xl font-serif italic text-stone-900">Outfit Details</h3>
-            <p className="text-xs font-bold tracking-widest uppercase text-stone-400 mt-1">{outfit.date}</p>
+            <p className="text-xs font-bold tracking-widest uppercase text-stone-400 mt-1">{formatOutfitDay(outfit.date)}</p>
+            <p className="text-xs text-stone-500 mt-2">Entered: {formatEntryTime(outfit)}</p>
           </div>
           <button onClick={onClose} className="p-2 text-stone-400 hover:text-stone-900 transition-colors">
             <X size={24} />
@@ -49,7 +51,7 @@ export const OutfitDetailModal: React.FC<OutfitDetailModalProps> = ({ outfit, wa
 
           <div className="mt-10 pt-8 border-t border-stone-100 flex justify-between items-center">
             <div className="text-stone-500 text-sm italic">
-              Logged on {outfit.date}
+              Worn on {formatOutfitDay(outfit.date)}
             </div>
             <button
               onClick={onClose}

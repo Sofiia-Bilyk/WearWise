@@ -19,5 +19,5 @@ export function apiItemToClothing(i: ApiItem): ClothingItem {
 }
 
 export function apiOutfitToOutfit(o: ApiOutfit): Outfit {
-  return { id: o.id, date: o.date, items: o.items };
+  return { id: o.id, date: o.date, loggedAt: o.loggedAt, items: o.items };
 }

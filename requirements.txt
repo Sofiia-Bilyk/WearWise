@@ -23,3 +23,8 @@ scikit-learn==1.8.0
 python-dotenv==1.2.2
 huggingface-hub==0.29.1
 gunicorn==23.0.0
+
+# Image embeddings (CPU PyTorch is installed separately in Dockerfile.backend)
+transformers==4.49.0
+Pillow==13.0.0
+torch>=2.6,<3

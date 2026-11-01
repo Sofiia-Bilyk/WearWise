@@ -1,61 +1,62 @@
 # WearWise
 
-A wardrobe tracking application that helps you log outfits, understand wear patterns, and rediscover clothing you already own.
+WearWise helps you track what you wear, rediscover your wardrobe, and understand your clothing habits. Upload an outfit photo, identify any unfamiliar garments, and confirm your outfit before saving it.
 
-## Main features
+## What you can do
 
 - Capture an outfit with your camera or upload a photo.
-- Review and correct AI-suggested clothing categories and colors before saving.
-- Add items manually or choose existing items from your wardrobe.
-- Manage wardrobe items, including photos, names, categories, colors, brands, and costs.
-- Log outfits by date and browse outfit history.
-- Explore wardrobe utilization, wear counts, category breakdowns, and logging activity.
-- Rediscover items not worn for more than 30 days, with an option to postpone reminders.
-- Keep wardrobe records associated with your account through session-based authentication.
+- Match detected clothing to existing wardrobe items using image similarity.
+- Identify uncertain garments through one popup at a time: choose an existing item or mark it as new.
+- Review, change, or remove suggestions before confirming the whole outfit.
+- Add items manually and manage photos, names, categories, colors, brands, and costs.
+- Browse outfit history grouped by the day worn, with separate entry times within each day.
+- Explore a Most Worn Item gallery, wardrobe utilization, and category breakdowns.
+- Rediscover clothing not worn for more than 30 days and postpone reminders.
+- Keep wardrobe records associated with your signed-in account.
 
-## How it works
+## How to log an outfit
 
 1. Register or sign in.
-2. Capture or upload an outfit photo, or select items manually.
-3. Review detected items and correct or remove suggestions as needed.
-4. Save the outfit and explore wear insights as your history grows.
+2. Take or upload a photo, or choose wardrobe items manually.
+3. Review the automatically matched items.
+4. For each unidentified crop, choose an existing wardrobe item or enter details for a new one. Multiple crops appear in sequence.
+5. Review the completed draft and select the day the outfit was worn.
+6. Confirm the whole log to save it.
 
-Detection suggests garment categories and colors; it does not automatically identify a garment as an existing wardrobe item. Choose existing wardrobe items manually when logging repeat wears.
+New items are created when you confirm the final draft. The draft stays in browser memory; refreshing or leaving the page discards it.
 
-## Technology and architecture
+## Understanding your history
 
-- **Frontend:** React, TypeScript, Vite, and Recharts.
-- **Backend:** Python, Flask, and SQLAlchemy.
-- **Data:** SQLite by default, with Alembic migrations through Flask-Migrate.
-- **Computer vision:** pretrained YOLO weights, OpenCV, and K-Means color extraction.
-- **Local deployment:** Docker Compose, Nginx, and Gunicorn, with persistent database and upload volumes.
+Outfits are grouped by their selected wear date. Multiple logs on the same day appear together, ordered by when they were entered, newest first. Entry times use your browser's local time zone. Backdated logs show the actual entry date as well as the time; older records without a usable timestamp show “Time unavailable.” Expanding history reveals complete day groups.
 
-See [architecture and limitations](docs/README.md) for the request flow and source layout.
+## Recognition limits
 
-## Quick start with Docker
-
-From the repository root:
-
-```powershell
-docker compose up --build
-```
-
-Open http://localhost. The first build installs computer vision dependencies and downloads fallback model weights. The fashion model is downloaded on its first use if available.
-
-This configuration is for local development. Configure a private secret, HTTPS, secure cookies, trusted origins, and photo access controls before exposing a deployment publicly.
+Similar garments, lighting, busy backgrounds, and partial views can cause incorrect matches. Uncertain crops remain available for manual identification, and automatic selections can be changed before confirmation. Similarity scores are not probabilities. The current matching thresholds are provisional and have not been calibrated against a recognition benchmark. If matching is unavailable, you can continue identifying garments manually.
 
 ## Local development on Windows
 
-Install Node.js 22+ and Python 3.11+, then run from the repository root:
+The local setup has been exercised with Node.js 24 and Python 3.12. Use those versions to reproduce it; Python 3.11+ is recommended.
+
+From the repository root:
 
 ```powershell
 npm ci
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+```
+
+For first-time setup only, copy the example configuration. Keep your existing `.env` if already configured:
+
+```powershell
 Copy-Item .env.example .env
+```
+
+Set `VITE_PROXY_TARGET=http://127.0.0.1:5001` in `.env` to match the backend address below.
+
+```powershell
 python -m flask --app wearwise_app.app db upgrade
-python -m wearwise_app.app
+python -m flask --app wearwise_app.app run --host 127.0.0.1 --port 5001
 ```
 
 In another terminal:
@@ -64,12 +65,55 @@ In another terminal:
 npm run dev
 ```
 
-Open http://localhost:3000. The backend runs on port 5001; Vite proxies `/api/` and `/uploads/` to it. Customize configuration in `.env`.
+Open [WearWise locally](http://localhost:3000). Vite proxies API and uploaded-photo requests to Flask.
 
-## Verification
+## Prepare wardrobe matching
 
-See [TESTING.md](TESTING.md) for backend tests, TypeScript checking, and frontend build commands. Test results and performance measurements should be recorded from actual runs.
+Activate the virtual environment and prepare embeddings for existing local photos:
+
+```powershell
+python -m flask --app wearwise_app.app embeddings backfill --download-model
+```
+
+This explicitly downloads the CLIP model into the local cache. Web requests use cached weights and do not initiate model downloads. The initial download is large. Subsequent backfills can omit `--download-model`; unchanged ready embeddings are skipped.
+
+## Run with Docker
+
+```powershell
+docker compose up --build
+```
+
+Open [WearWise in Docker](http://localhost). Prepare matching inside the backend container:
+
+```powershell
+docker compose exec backend python -m flask --app wearwise_app.app embeddings backfill --download-model
+```
+
+Containers have their own model cache, which may need preparing again after recreation. The Compose configuration is intended for local development. A public deployment needs production secrets, session settings, HTTPS, and private-photo access controls.
+
+## Demo wardrobe and history
+
+The optional scripts target the existing local account configured by `EMAIL` in `scripts/seed_demo_data.py`. That account must already exist. The scripts are designed for the project's local SQLite database.
+
+```powershell
+python scripts/seed_demo_data.py
+python scripts/replace_demo_photos.py
+```
+
+The seed creates 16 clearly labeled demo items across five categories and 24 outfit logs for October 2026. It includes varied wear counts, unworn items, and a postponed reminder. The replacement script adds real clothing photos from Pexels and generates embeddings when the model is available.
+
+Seeding can be rerun without duplicating the marked demo records. Photo replacement preserves item IDs and outfit links. Both scripts create database backups before changing records and leave non-demo records intact. Photo sources and licensing links are listed in [demo-photo-sources.json](docs/demo-photo-sources.json).
+
+Downloaded photos live in the ignored uploads directory. A fresh checkout needs the replacement script to obtain them again. Demo usage history is synthetic; it is not customer data or evidence of recognition accuracy.
+
+## Technology
+
+- React, TypeScript, Vite, and Recharts for the interface.
+- Python, Flask, SQLAlchemy, SQLite, and Alembic migrations for the backend.
+- YOLO for garment regions, OpenCV and K-Means for color extraction, and CLIP for image similarity.
+
+See [how WearWise works](docs/README.md) and [testing guidance](TESTING.md).
 
 ## Project origin
 
-WearWise is Sofiia Bilyk's personal continuation of [ReWear](https://github.com/Sofiia-Bilyk/ReWear). The inherited implementation and original contributors are acknowledged in [ATTRIBUTION.md](ATTRIBUTION.md). New features and improvements will be documented as they are implemented.
+WearWise is Sofiia Bilyk's personal continuation of [ReWear](https://github.com/Sofiia-Bilyk/ReWear). The inherited implementation and original contributors are acknowledged in [ATTRIBUTION.md](ATTRIBUTION.md).

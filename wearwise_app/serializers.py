@@ -1,3 +1,5 @@
+from datetime import timezone
+
 def item_to_dict(item):
     """Serialize an Item with computed wear stats.
 
@@ -15,6 +17,8 @@ def item_to_dict(item):
         last_worn = max(dates).isoformat() if dates else None
     return {
         "id": str(item.id),
+        # Internal vectors and fingerprints are never included in API responses.
+        "embeddingStatus": item.embedding.status if item.embedding else "pending",
         "name": item.name,
         "category": item.category or "Top",
         "image": item.image_path or "",
@@ -31,9 +35,15 @@ def item_to_dict(item):
 
 
 def outfit_to_dict(outfit):
+    logged_at = outfit.logged_at
+    # Existing naive timestamps were generated in UTC. Include the timezone
+    # explicitly so the browser displays the correct local entry time.
+    if logged_at is not None and logged_at.tzinfo is None:
+        logged_at = logged_at.replace(tzinfo=timezone.utc)
     return {
         "id": str(outfit.id),
         "date": outfit.worn_date.isoformat(),
+        "loggedAt": logged_at.isoformat() if logged_at else None,
         "items": [str(oi.item_id) for oi in outfit.outfit_items],
         "imagePath": outfit.image_path,
     }

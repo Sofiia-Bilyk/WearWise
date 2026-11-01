@@ -3,11 +3,12 @@ import { Camera, Upload } from 'lucide-react';
 import { Detection } from '../api/detection';
 
 interface CameraStageProps {
+  disabled?: boolean;
   videoRef: RefObject<HTMLVideoElement>;
   canvasRef: RefObject<HTMLCanvasElement>;
   fileInputRef: RefObject<HTMLInputElement>;
   previewImage: string | null;
-  permissionError: string | null;
+  permissionError: boolean;
   isDetecting: boolean;
   isLogSuccess: boolean;
   detectedItems: Detection[];
@@ -27,6 +28,7 @@ interface CameraStageProps {
  * Capture/Upload toolbar.
  */
 export const CameraStage: React.FC<CameraStageProps> = ({
+  disabled = false,
   videoRef,
   canvasRef,
   fileInputRef,
@@ -44,7 +46,7 @@ export const CameraStage: React.FC<CameraStageProps> = ({
   onFileChange,
   onRetry,
 }) => (
-  <div className="relative flex-grow h-full bg-black overflow-hidden flex items-center justify-center group">
+  <div className="relative flex-grow min-h-[300px] h-[45dvh] lg:h-full bg-black overflow-hidden flex items-center justify-center group">
     {permissionError && !previewImage ? (
       <div className="text-center p-8 bg-stone-800 rounded-2xl max-w-md mx-4">
         <Camera className="w-12 h-12 text-stone-500 mx-auto mb-4" aria-hidden="true" />
@@ -54,12 +56,14 @@ export const CameraStage: React.FC<CameraStageProps> = ({
         </p>
         <div className="flex flex-col gap-3">
           <button
+              disabled={disabled}
             onClick={onStartCamera}
             className="px-6 py-3 bg-primary-500 text-white rounded-full font-bold uppercase tracking-widest text-xs hover:bg-primary-600 transition-all"
           >
             Retry Access
           </button>
           <button
+              disabled={disabled}
             onClick={onUploadClick}
             className="px-6 py-3 bg-stone-700 text-stone-300 rounded-full font-bold uppercase tracking-widest text-xs hover:bg-stone-600 transition-all"
           >
@@ -73,6 +77,7 @@ export const CameraStage: React.FC<CameraStageProps> = ({
           <div className="absolute inset-0 w-full h-full bg-stone-900 flex items-center justify-center z-20">
             <img src={previewImage} alt="Uploaded look" className="w-full h-full object-contain" />
             <button
+              disabled={disabled}
               onClick={onRetry}
               aria-label="Return to live camera"
               title="Return to camera"
@@ -143,13 +148,13 @@ export const CameraStage: React.FC<CameraStageProps> = ({
       </>
     )}
 
-    {/* Always-visible toolbar — Capture must not hide behind a hover state
-        (3rd user-interview feedback). */}
+    {/* Keep capture and upload controls visible above the photo preview. */}
     <div
-      className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-3"
+      className="absolute z-30 bottom-8 left-1/2 -translate-x-1/2 flex gap-3"
       aria-label="Camera actions"
     >
       <input
+        disabled={disabled}
         type="file"
         ref={fileInputRef}
         className="hidden"
@@ -157,6 +162,7 @@ export const CameraStage: React.FC<CameraStageProps> = ({
         onChange={onFileChange}
       />
       <button
+              disabled={disabled}
         onClick={onUploadClick}
         aria-label="Upload a photo from your device"
         className="flex items-center gap-2 px-5 py-2.5 bg-stone-800/80 backdrop-blur-md border border-stone-600 text-white rounded-full text-xs font-bold uppercase tracking-widest hover:bg-stone-700 transition-all"
@@ -165,6 +171,7 @@ export const CameraStage: React.FC<CameraStageProps> = ({
       </button>
       {!previewImage && !permissionError && (
         <button
+              disabled={disabled}
           onClick={onCapture}
           aria-label="Capture the current camera frame"
           className="flex items-center gap-2 px-5 py-2.5 bg-primary-500/90 backdrop-blur-md border border-primary-400 text-white rounded-full text-xs font-bold uppercase tracking-widest hover:bg-primary-600 transition-all"
