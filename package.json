@@ -10,7 +10,8 @@
     "build:backend": "python build.py",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "test:frontend": "node --experimental-strip-types --test tests/frontend/*.test.ts"
+    "test:frontend": "node --experimental-strip-types --test tests/frontend/*.test.ts",
+    "test:components": "tsx --tsconfig tests/components/tsconfig.json --test --test-concurrency=1 tests/components/*.test.tsx"
   },
   "dependencies": {
     "heic2any": "^0.0.4",
@@ -21,10 +22,13 @@
     "recharts": "^3.7.0"
   },
   "devDependencies": {
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "jsdom": "^29.1.1",
+    "tsx": "^4.23.15",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

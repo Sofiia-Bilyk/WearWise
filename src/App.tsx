@@ -9,6 +9,7 @@ import { RegisterView } from './pages/RegisterView';
 import { LoginView } from './pages/LoginView';
 import { WardrobeProvider } from './contexts/WardrobeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { OutfitAssistantProvider } from './contexts/OutfitAssistantContext';
 
 /** Redirect to /login if not authenticated (after initial load). */
 const ProtectedRoute: React.FC<{ element: React.ReactElement }> = ({ element }) => {
@@ -48,7 +49,9 @@ const AppRoutes: React.FC = () => (
 const App: React.FC = () => (
   <AuthProvider>
     <WardrobeProvider>
-      <AppRoutes />
+      <OutfitAssistantProvider>
+        <AppRoutes />
+      </OutfitAssistantProvider>
     </WardrobeProvider>
   </AuthProvider>
 );

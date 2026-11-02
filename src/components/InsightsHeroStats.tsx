@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowUpRight, CalendarClock } from 'lucide-react';
+import { OutfitAssistantEntry } from './OutfitAssistantEntry';
 
 interface InsightsHeroStatsProps {
   totalItems: number;
@@ -47,5 +48,6 @@ export const InsightsHeroStats: React.FC<InsightsHeroStatsProps> = ({
         <div className="bg-primary-500 h-full" style={{ width: `${utilization}%` }} />
       </div>
     </div>
+    <OutfitAssistantEntry />
   </div>
 );

@@ -194,3 +194,12 @@ class Reminder(BaseModel):
     remind_at = db.Column(db.DateTime, nullable=False)
     snoozed_until = db.Column(db.DateTime, nullable=True)
     is_sent = db.Column(db.Boolean, default=False)
+
+
+
+class GoogleCalendarConnection(db.Model):
+    """One encrypted Google OAuth credential record per WearWise account."""
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
+    encrypted_credentials = db.Column(db.Text, nullable=False)
+    user = db.relationship('User', backref=db.backref('google_calendar', uselist=False,
+        cascade='all, delete-orphan'))

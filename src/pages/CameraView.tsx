@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useWardrobe } from '../contexts/WardrobeContext';
 import type { ClothingItem } from '../types';
+import { OutfitAssistantEntry } from '../components/OutfitAssistantEntry';
 import { WardrobePickerModal } from '../components/WardrobePickerModal';
 import { CreateItemModal } from '../components/CreateItemModal';
 import { UnrecognizedGarmentModal } from '../components/UnrecognizedGarmentModal';
@@ -195,7 +196,13 @@ export const CameraView: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row h-[calc(100dvh-80px)] w-full overflow-y-auto lg:overflow-hidden bg-stone-900">
+    <div className="flex flex-col h-[calc(100dvh-80px)] w-full overflow-hidden bg-stone-900">
+      {!previewImage && draft.garments.length === 0 && !detector.isDetecting && !isLogSuccess && (
+        <div className="bg-stone-50 px-4 py-3 shrink-0">
+          <OutfitAssistantEntry variant="banner" disabled={draftLocked} />
+        </div>
+      )}
+      <div className="flex flex-1 min-h-0 flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
       <CameraStage
         videoRef={camera.videoRef} canvasRef={camera.canvasRef} fileInputRef={fileInputRef}
         previewImage={previewImage} permissionError={camera.permissionError}
@@ -220,6 +227,7 @@ export const CameraView: React.FC = () => {
         onCreateBlank={() => setSelection({ kind: 'new', detectionId: null })}
         onLogOutfit={handleLogOutfit} onRetry={handleRetry}
       />
+      </div>
       {draft.currentGarment && !selection && !draftLocked && !isLogSuccess && (
         <UnrecognizedGarmentModal key={draft.currentGarment.detection.id}
           item={draft.currentGarment.detection} remainingCount={draft.unresolvedCount}

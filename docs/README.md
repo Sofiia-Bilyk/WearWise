@@ -86,3 +86,14 @@ The retained [database diagram](schema.png) predates image embeddings. Current m
 The detector attempts to load fashion weights and falls back to a general COCO YOLO model if needed. In fallback mode, a person's bounding box is split into approximate top and bottom regions; its confidence describes person detection rather than garment identity.
 
 Crops and dominant colors can include background or skin pixels. The repository does not establish a recognition benchmark or provide a model training pipeline. Local filesystem storage is implemented; S3 storage remains a stub. Public deployment requires protected photo access and production session configuration, alongside improvements to save reliability.
+
+
+## Outfit assistant
+
+The Log a look banner and fourth Insights summary card share an account-scoped
+React provider and one native dialog. Explicit generation calls the authenticated
+assistant endpoint. It obtains city-local hourly weather, selected primary-calendar
+events with confirmed dress codes, and active own-wardrobe forgotten flags. The
+Anthropic response is schema-checked and item IDs are validated again after
+inference. Suggestions do not write outfits. Google OAuth tokens are encrypted
+separately from the Flask session. See [assistant setup, behavior, and limitations](OUTFIT_ASSISTANT.md).
