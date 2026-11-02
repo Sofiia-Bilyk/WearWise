@@ -15,7 +15,7 @@ class Wardrobe:
         return (
             db.select(Item)
             .where(Item.user_id == self.user_id, Item.archived_at.is_(None))
-            .options(joinedload(Item.outfit_items).joinedload(OutfitItem.outfit))
+            .options(joinedload(Item.embedding), joinedload(Item.outfit_items).joinedload(OutfitItem.outfit))
         )
 
     def __iter__(self):

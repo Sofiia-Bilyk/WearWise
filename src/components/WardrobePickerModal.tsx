@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import { Search, X } from 'lucide-react';
 import { ClothingItem } from '../types';
 
@@ -15,6 +15,13 @@ export const WardrobePickerModal: React.FC<WardrobePickerModalProps> = ({
   onCreateBlank,
   onClose,
 }) => {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
 
   const filtered = wardrobe.filter(item =>
@@ -23,15 +30,14 @@ export const WardrobePickerModal: React.FC<WardrobePickerModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-      <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} />
+    <dialog ref={dialogRef} aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onClose(); }} className="w-[calc(100%_-_2rem)] max-w-2xl p-0 bg-white rounded-xl backdrop:bg-stone-900/60">
       <div className="relative w-full max-w-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-300">
         <div className="p-6 border-b border-stone-100 flex items-center justify-between">
           <div>
-            <h3 className="text-2xl font-serif italic text-stone-900">Select from Wardrobe</h3>
+            <h3 id={titleId} className="text-2xl font-serif italic text-stone-900">Select from Wardrobe</h3>
             <p className="text-[10px] uppercase tracking-widest text-stone-400 mt-1">Manual Selection</p>
           </div>
-          <button onClick={onClose} className="p-2 text-stone-400 hover:text-stone-900 transition-colors">
+          <button type="button" aria-label="Cancel wardrobe selection" onClick={onClose} className="p-2 text-stone-400 hover:text-stone-900 transition-colors">
             <X size={24} />
           </button>
         </div>
@@ -44,10 +50,11 @@ export const WardrobePickerModal: React.FC<WardrobePickerModalProps> = ({
               autoFocus />
           </div>
         </div>
+        <button type="button" onClick={onCreateBlank} className="mx-6 mt-3 text-left text-sm text-primary-600 underline">It's a new item instead</button>
         <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
             {filtered.map((item) => (
-              <div key={item.id} onClick={() => onSelect(item)} className="group cursor-pointer space-y-3">
+              <button type="button" aria-label={`Select ${item.name}`} key={item.id} onClick={() => onSelect(item)} className="group cursor-pointer space-y-3 text-left">
                 <div className="aspect-[3/4] overflow-hidden bg-stone-100 relative">
                   <img src={item.image} alt={item.name} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" referrerPolicy="no-referrer" />
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -58,7 +65,7 @@ export const WardrobePickerModal: React.FC<WardrobePickerModalProps> = ({
                   <h4 className="font-serif text-sm italic text-stone-900 group-hover:text-primary-600 transition-colors truncate">{item.name}</h4>
                   <p className="text-[9px] uppercase tracking-widest text-stone-400 mt-0.5">{item.category}</p>
                 </div>
-              </div>
+              </button>
             ))}
             {filtered.length === 0 && (
               <div className="col-span-full py-12 text-center">
@@ -68,6 +75,6 @@ export const WardrobePickerModal: React.FC<WardrobePickerModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 };

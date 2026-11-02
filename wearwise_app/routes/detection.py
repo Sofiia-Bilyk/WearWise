@@ -7,6 +7,7 @@ import numpy as np
 
 from ..auth_guard import require_auth
 from ..detector import detect_clothing
+from ..services.detection_matching import match_detections
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ def detect():
         return err
 
     data = request.get_json()
-    if not data or "image" not in data:
+    if not isinstance(data, dict) or not isinstance(data.get("image"), str):
         return jsonify({"error": "No image provided"}), 400
 
     if len(data["image"]) > 13_000_000:
@@ -37,6 +38,7 @@ def detect():
             return jsonify({"error": "Could not decode image"}), 400
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         detections = detect_clothing(image_rgb)
+        detections = match_detections(detections, user.id)
         return jsonify({"detections": detections})
     except Exception as e:
         logger.exception("Detection failed: %s", e)

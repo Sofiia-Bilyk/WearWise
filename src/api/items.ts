@@ -1,6 +1,7 @@
 import { request } from './client';
 
 export interface ApiItem {
+  embeddingStatus?: 'pending' | 'ready' | 'unavailable' | 'no_image' | 'invalid_image';
   id: string;
   name: string;
   category: string;

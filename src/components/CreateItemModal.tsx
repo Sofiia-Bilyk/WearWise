@@ -1,24 +1,34 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useId } from 'react';
 import { X, Upload } from 'lucide-react';
 import { ClothingItem, Category } from '../types';
 
 interface CreateItemModalProps {
+  initialItem?: ClothingItem;
+  title?: string;
+  submitLabel?: string;
   onCreateItem: (item: ClothingItem) => void;
   onClose: () => void;
 }
 
 const categories: Category[] = ['Top', 'Bottom', 'Shoes', 'Outerwear', 'Accessory'];
 
-export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, onClose }) => {
+export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, onClose, initialItem, title = 'Add New Piece', submitLabel = 'Create Piece' }) => {
   const [form, setForm] = useState({
-    name: '',
-    category: 'Top' as Category,
-    image: '',
-    color: '',
-    brand: '',
-    cost: '',
+    name: initialItem?.name ?? '',
+    category: initialItem?.category ?? 'Top' as Category,
+    image: initialItem?.image ?? '',
+    color: initialItem?.color ?? '',
+    brand: initialItem?.brand ?? '',
+    cost: initialItem?.cost?.toString() ?? '',
   });
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(initialItem?.image || null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -34,10 +44,10 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
   };
 
   const handleCreate = () => {
-    if (!form.name) return;
+    if (!form.name.trim() || (form.cost && (!Number.isFinite(Number(form.cost)) || Number(form.cost) < 0))) return;
     const newItem: ClothingItem = {
       id: `item-${Date.now()}`,
-      name: form.name,
+      name: form.name.trim(),
       category: form.category,
       image: form.image || `/placeholder-garment.svg`,
       wearCount: 0,
@@ -51,11 +61,11 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-100/80 backdrop-blur-md animate-in fade-in duration-300">
+    <dialog ref={dialogRef} aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onClose(); }} className="w-[calc(100%_-_2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto rounded-3xl bg-white p-0 backdrop:bg-stone-900/60">
       <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-stone-200">
         <div className="p-8 border-b border-stone-100 flex items-center justify-between">
-          <h3 className="text-2xl font-serif italic text-stone-900">Add New Piece</h3>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-900"><X size={24} /></button>
+          <h3 id={titleId} className="text-2xl font-serif italic text-stone-900">{title}</h3>
+          <button type="button" aria-label="Cancel item form" onClick={onClose} className="text-stone-400 hover:text-stone-900"><X size={24} /></button>
         </div>
         <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-6">
@@ -63,6 +73,7 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
               <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Item Name</label>
               <input
                 type="text"
+                aria-label="Item name"
                 value={form.name}
                 onChange={(e) => setForm({...form, name: e.target.value})}
                 placeholder="e.g. Cashmere Sweater"
@@ -72,7 +83,7 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
             <div>
               <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Category</label>
               <select
-                value={form.category}
+                aria-label="Item category" value={form.category}
                 onChange={(e) => setForm({...form, category: e.target.value as Category})}
                 className="w-full bg-transparent border-b border-stone-200 py-2 text-sm font-bold uppercase tracking-widest focus:outline-none focus:border-primary-500"
               >
@@ -85,7 +96,7 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
               <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Color</label>
               <input
                 type="text"
-                value={form.color}
+                aria-label="Item color" value={form.color}
                 onChange={(e) => setForm({...form, color: e.target.value})}
                 placeholder="e.g. Navy Blue"
                 className="w-full bg-transparent border-b border-stone-200 py-2 text-sm focus:outline-none focus:border-primary-500"
@@ -97,7 +108,7 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
               <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Brand (Optional)</label>
               <input
                 type="text"
-                value={form.brand}
+                aria-label="Item brand" value={form.brand}
                 onChange={(e) => setForm({...form, brand: e.target.value})}
                 placeholder="e.g. Everlane"
                 className="w-full bg-transparent border-b border-stone-200 py-2 text-sm focus:outline-none focus:border-primary-500"
@@ -109,7 +120,7 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
                 <span className="absolute left-0 top-1/2 -translate-y-1/2 text-stone-400">$</span>
                 <input
                   type="number"
-                  value={form.cost}
+                  aria-label="Item cost" min="0" step="0.01" value={form.cost}
                   onChange={(e) => setForm({...form, cost: e.target.value})}
                   placeholder="0.00"
                   className="w-full bg-transparent border-b border-stone-200 py-2 pl-4 text-sm focus:outline-none focus:border-primary-500"
@@ -150,14 +161,16 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
           </div>
           <div className="md:col-span-2">
             <button
+              type="button"
+              disabled={!form.name.trim() || (!!form.cost && (!Number.isFinite(Number(form.cost)) || Number(form.cost) < 0))}
               onClick={handleCreate}
               className="w-full py-4 bg-stone-900 text-white text-xs font-bold uppercase tracking-widest hover:bg-primary-600 transition-colors rounded-xl shadow-xl shadow-stone-900/10"
             >
-              Create Piece
+              {submitLabel}
             </button>
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 };

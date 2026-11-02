@@ -1,43 +1,78 @@
-# Architecture
+# How WearWise works
 
-## Request flow
+## From photo to confirmed outfit
 
-The React interface calls typed API modules through a shared fetch client. API adapters translate backend responses into frontend types. Flask blueprints authenticate requests and delegate creation workflows to services. SQLAlchemy persists users, wardrobe items, outfits, and their relationships.
+The signed-in user uploads a photo through the React interface. Flask authenticates the detection request, decodes the image, and uses YOLO to propose garment regions. Color extraction estimates the dominant color of each crop.
 
-Photo detection follows a separate request flow: the browser submits a base64 image, the backend decodes it, YOLO proposes bounding boxes, and K-Means estimates the dominant color of each crop. Users review the proposals before saving items and an outfit.
+Each crop is compared with ready image embeddings belonging to the current user's active wardrobe items. A sufficiently strong, distinct match becomes an editable selection. Uncertain crops enter a sequential identification flow: the user chooses an existing wardrobe item or describes a new one. The complete draft is reviewed before saving.
+
+## Image embeddings
+
+`wearwise_app/services/image_embeddings.py` uses `openai/clip-vit-base-patch32` to produce normalized, 512-dimensional image vectors. Images undergo orientation correction and RGB conversion. Embedding metadata identifies the model revision and preprocessing pipeline so incompatible vectors are not compared.
+
+The `ItemEmbedding` record stores the vector, model identity and revision, pipeline version, image fingerprint, source image path, processing status, and update time. Saving a new or changed photo refreshes its embedding when model weights are cached. Old vectors are cleared before processing a replacement photo. Invalid images or unavailable weights produce a status rather than preventing the item from saving. Item API responses expose status, not vectors.
+
+Embedding input is restricted to validated local uploads. Remote image URLs are not fetched, and photos are not sent to a hosted inference API.
+
+## Candidate ranking
+
+Matching compares compatible vectors using cosine similarity. Only the signed-in user's active items with ready embeddings and a current source image path are considered. The response includes up to three candidates meeting `MATCH_MIN_SIMILARITY` (default `0.80`).
+
+Automatic selection also requires the best candidate to lead the next compatible candidate by `MATCH_MIN_MARGIN` (default `0.05`). A near tie blocks automatic selection even if the second candidate falls just below the similarity threshold. These defaults are provisional; scores are not probabilities or measured recognition accuracy. YOLO confidence is not used as garment identity confidence.
+
+## Preparing and refreshing embeddings
+
+Apply migrations and explicitly prepare the local model cache:
+
+```powershell
+python -m flask --app wearwise_app.app db upgrade
+python -m flask --app wearwise_app.app embeddings backfill --download-model
+```
+
+Ordinary web requests use cached model files only. Backfill commits each item's state separately, so it can resume after interruption. Unchanged ready vectors are skipped. To scope or regenerate a backfill:
+
+```powershell
+python -m flask --app wearwise_app.app embeddings backfill --user-id 1 --force
+```
+
+Use `--force` after changing model weights or preprocessing. `EMBEDDING_MODEL_REVISION` can pin a model revision. Missing or invalid local photos are recorded without fabricated vectors; archived items are excluded. The command exits with an error when model availability prevents embeddings from being generated.
+
+## Draft confirmation and saving
+
+The frontend keeps the draft in memory. Each unresolved crop is handled in sequence; canceling a selection returns to that crop, and identification can be paused and resumed while the draft remains open. Final confirmation requires every remaining crop to be resolved.
+
+Existing item IDs are reused and duplicate item links are removed. New items are created before the outfit through separate API requests. Successfully created IDs are retained within the open draft for retries, but saving is not atomic or fully idempotent across network failures and page refreshes. Partial failures can leave newly created items without an outfit.
+
+## Outfit history
+
+`worn_date` is the selected calendar day; `logged_at` is the actual entry timestamp. The API exposes entry time as `loggedAt`, with an explicit UTC offset for existing naive UTC timestamps. This serialization does not change stored records.
+
+History groups logs by wear date, then sorts entries by their actual entry time, newest first. The browser formats entry times locally and includes the entry date for backdated logs. Missing or invalid timestamps appear last with “Time unavailable.” Expanding history preserves complete day groups.
 
 ## Source layout
 
 | Path | Purpose |
 | --- | --- |
-| `src/pages/` | Camera, wardrobe, insights, and authentication screens |
-| `src/components/` | Forms, item cards, detection controls, and charts |
-| `src/hooks/` | Camera capture, uploads, detection state, and derived insights |
-| `src/contexts/` | Authentication and wardrobe state |
-| `src/api/` | Fetch client, endpoint modules, and response adapters |
-| `wearwise_app/routes/` | Authentication, item, outfit, detection, and upload endpoints |
-| `wearwise_app/services/` | Validation, creation workflows, and storage abstractions |
-| `wearwise_app/models.py` | SQLAlchemy entities, constraints, and indexes |
-| `wearwise_app/detector.py` | Model loading, garment suggestions, and color extraction |
-| `migrations/` | Database schema migrations |
-| `tests/` | Backend tests and fixtures |
+| `src/pages/CameraView.tsx` | Photo-to-outfit draft workflow |
+| `src/hooks/useGarmentResolution.ts` | Sequential identification state |
+| `src/state/garmentResolution.ts` | Draft validation and save planning |
+| `src/components/UnrecognizedGarmentModal.tsx` | Unidentified garment popup |
+| `src/utils/outfitHistory.ts` | History grouping and local-time formatting |
+| `src/api/` | Typed requests and response adapters |
+| `wearwise_app/models.py` | Users, items, embeddings, outfits, and relationships |
+| `wearwise_app/services/image_embeddings.py` | CLIP inference and model metadata |
+| `wearwise_app/services/embedding_store.py` | Validated photo loading and embedding persistence |
+| `wearwise_app/services/garment_matching.py` | Compatible-vector comparison and ranking |
+| `wearwise_app/services/detection_matching.py` | Owner-scoped detection matching |
+| `wearwise_app/embedding_commands.py` | Explicit embedding backfill command |
+| `migrations/` | Database migrations |
+| `scripts/` | Demo seeding and real-photo replacement |
+| `tests/` | Backend and frontend logic tests |
 
-The original database diagram is retained in [schema.png](schema.png); the current models and migrations are authoritative.
+The retained [database diagram](schema.png) predates image embeddings. Current models and migrations are authoritative.
 
-## Data model
+## Remaining limitations
 
-Users own wardrobe items and outfits. OutfitItem links items to outfits through a many-to-many relationship. Items include optional cost, image, AI prediction, archival, and postponement fields. Wear statistics are derived from outfit history.
+The detector attempts to load fashion weights and falls back to a general COCO YOLO model if needed. In fallback mode, a person's bounding box is split into approximate top and bottom regions; its confidence describes person detection rather than garment identity.
 
-## Model behavior and limitations
-
-The detector attempts to load pretrained fashion weights from Hugging Face. If loading fails, it falls back to a general COCO YOLO model. In fallback mode, a person's bounding box is split into approximate top and bottom regions; the confidence is the person detection confidence, not a calibrated garment classification score.
-
-Color extraction uses image crops and can include background or skin pixels. Results require user review. This repository does not establish a reproducible accuracy benchmark or provide a model training pipeline.
-
-Detection does not automatically match a suggested garment to an existing wardrobe entry. Users can select existing items manually. S3 storage is a stub; local filesystem storage is implemented.
-
-## Deployment and improvement areas
-
-Docker Compose runs Nginx and a Gunicorn-backed Flask application. SQLite and uploaded images use persistent volumes. The Compose configuration is intended for local development.
-
-Before a public deployment, address private photo access, production secrets and session configuration, request validation and limits, and reliable retry behavior for outfit logging. The current frontend creates new items before saving the outfit through separate requests, so partial failures can leave saved items without an outfit.
+Crops and dominant colors can include background or skin pixels. The repository does not establish a recognition benchmark or provide a model training pipeline. Local filesystem storage is implemented; S3 storage remains a stub. Public deployment requires protected photo access and production session configuration, alongside improvements to save reliability.

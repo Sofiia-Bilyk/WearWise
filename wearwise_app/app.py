@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 from dotenv import load_dotenv
 
@@ -55,6 +56,16 @@ def create_app(test_config=None):
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+    # Matching settings are overridable in tests and deployment configuration.
+    app.config.setdefault('MATCH_MIN_SIMILARITY', float(os.environ.get('MATCH_MIN_SIMILARITY', '0.80')))
+    app.config.setdefault('MATCH_MIN_MARGIN', float(os.environ.get('MATCH_MIN_MARGIN', '0.05')))
+    threshold = app.config['MATCH_MIN_SIMILARITY']
+    margin = app.config['MATCH_MIN_MARGIN']
+    if not math.isfinite(threshold) or not -1 <= threshold <= 1:
+        raise ValueError('MATCH_MIN_SIMILARITY must be between -1 and 1.')
+    if not math.isfinite(margin) or not 0 <= margin <= 2:
+        raise ValueError('MATCH_MIN_MARGIN must be between 0 and 2.')
+
     # ── Extensions ────────────────────────────────────────────────────────────────
     db.init_app(app)
     Migrate(app, db, render_as_batch=True)
@@ -96,6 +107,9 @@ def create_app(test_config=None):
     app.register_blueprint(outfits_bp)
     app.register_blueprint(detection_bp)
     app.register_blueprint(uploads_bp)
+
+    from .embedding_commands import embeddings_cli
+    app.cli.add_command(embeddings_cli)
 
     @app.route("/")
     def home():

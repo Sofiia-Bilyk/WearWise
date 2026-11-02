@@ -129,6 +129,9 @@ def update_item(item_id):
         item.image_path = image_val
 
     try:
+        if 'image' in data or 'image_path' in data:
+            from ..services.embedding_store import refresh_item_embedding
+            refresh_item_embedding(item)
         db.session.commit()
     except Exception as exc:
         db.session.rollback()

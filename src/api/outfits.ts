@@ -3,6 +3,7 @@ import { request } from './client';
 export interface ApiOutfit {
   id: string;
   date: string;
+  loggedAt?: string | null; // Actual entry timestamp, including its timezone.
   items: string[];
   imagePath: string | null;
 }

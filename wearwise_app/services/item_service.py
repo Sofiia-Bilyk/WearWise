@@ -66,12 +66,15 @@ class ItemService(BaseService):
 
     def handle_files(self, data, files):
         """Decode any base64 image from the JSON payload and persist it."""
-        image_val = data.get("image", "")
-        if not (image_val and image_val.startswith("data:image/")):
+        image_val = data.pop("image", "")
+        if not image_val:
             return {}
+        if not isinstance(image_val, str):
+            raise ValidationError("Image must be a data URL or image path")
+        if not image_val.startswith("data:image/"):
+            # The UI can send a placeholder or an existing path instead of bytes.
+            return {"image_path": image_val}
 
-        # Drop the raw data-URL — the Item model has ``image_path``, not ``image``.
-        data.pop("image", None)
         try:
             mime_part, b64_part = image_val.split(",", 1)
             image_bytes = base64.b64decode(b64_part)
@@ -87,3 +90,10 @@ class ItemService(BaseService):
             # ValidationError → 400 so the client gets a helpful message
             # instead of a generic 500.
             raise ValidationError("Could not read uploaded image")
+
+
+    def post_create(self, resource, raw_data):
+        # Persist vector/status in the same transaction as the new wardrobe item.
+        # If the model is not cached, manual item creation still succeeds.
+        from .embedding_store import refresh_item_embedding
+        refresh_item_embedding(resource)

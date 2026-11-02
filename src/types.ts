@@ -17,6 +17,7 @@ export interface ClothingItem {
 export interface Outfit {
   id: string;
   date: string;
+  loggedAt?: string | null; // Actual entry timestamp, including its timezone.
   items: string[]; // Array of ClothingItem IDs
 }
 

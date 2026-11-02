@@ -1,47 +1,75 @@
-# Verification
+# Testing WearWise
 
-Run these commands from the repository root after installing dependencies as described in the main README.
+Run these commands from the repository root after installing dependencies and activating the virtual environment described in the main README.
 
-## Backend
+## Backend tests
 
 ```powershell
 python -m pytest tests/ -v
 ```
 
-The suite covers authentication, access guards, item and outfit routes, models, serialization, and an oversized detection-request check. The detection-request test mocks inference; it is not a recognition accuracy benchmark.
+Tests cover authentication, ownership checks, item and outfit routes, models, serialization, image embeddings, candidate matching, embedding storage and backfill, and demo-photo replacement. Mocked inference and synthetic vectors make logic checks reproducible without downloading a model; they do not establish real-world recognition accuracy.
 
-Run a focused test file when investigating a specific area:
+Focused checks for the recent changes:
 
 ```powershell
-python -m pytest tests/test_items_routes.py -v
-python -m pytest tests/test_outfits_routes.py -v
-python -m pytest tests/test_detector.py -v
+python -m pytest tests/test_image_embeddings.py tests/test_embedding_integration.py tests/test_garment_matching.py tests/test_serializers.py tests/test_demo_photo_replacement.py -v
 ```
 
-Optional coverage reporting requires an additional dependency:
+Optional coverage reporting:
 
 ```powershell
 python -m pip install pytest-cov
 python -m pytest tests/ --cov=wearwise_app --cov-report=html
 ```
 
-## Frontend
+## Frontend checks
 
 ```powershell
 npm ci
 npm run lint
+npm run test:frontend
 npm run build:frontend
 ```
 
-The `lint` script runs TypeScript checking. It does not run a separate style linter. A frontend browser test suite is not currently configured.
+The `lint` script runs TypeScript checking. Frontend logic tests cover draft resolution, save planning, history grouping, and timestamp formatting. They use Node's built-in test runner and its TypeScript stripping support; use Node.js 24 to reproduce the local setup. A persistent automated browser test suite is not configured.
 
-## Manual smoke check
+## Manual workflow checks
 
-1. Register, sign in, and sign out.
-2. Add, edit, and remove a wardrobe item.
-3. Upload a photo, review detection suggestions, and correct a suggestion.
-4. Log an outfit with an existing wardrobe item and verify it persists after refreshing.
-5. Check insights and postpone a forgotten-item reminder.
-6. Check the empty wardrobe, invalid image, and failed-request experiences.
+### Prepare the wardrobe
 
-Record actual command output when reporting test counts, coverage, or passing results. No specific result is guaranteed by this document.
+Add an item with a clear local photo, then prepare real embeddings:
+
+```powershell
+python -m flask --app wearwise_app.app embeddings backfill --download-model
+```
+
+Confirm the item has a ready embedding before testing automatic matching.
+
+### Check matching and corrections
+
+Upload a recognizable photo of an existing item. Confirm a successful match reuses its wardrobe ID. Try similar garments and unfamiliar clothing: uncertain results should allow manual identification. Change an automatic selection before saving and verify the correction is retained. Repeat-wear logging should not create another copy of an existing item.
+
+### Check sequential identification
+
+Upload a photo containing multiple unidentified crops. Confirm only one identification popup appears at a time. Test both choosing an existing item and entering a new item's details. Canceling a subview should return to the same crop; resolving it should advance to the next. Pause and resume identification while the draft is open. Final submission should remain disabled until every remaining crop is resolved.
+
+### Check final confirmation
+
+Before confirming, verify that a proposed new item has not yet been created in the wardrobe. Confirm the complete outfit, refresh, and verify persistence. Check that existing items were reused and repeated selections produced only one link per item in the outfit. Test a failed save and retry, accounting for the documented limitation that separate item and outfit requests are not atomic.
+
+### Check history
+
+Create several logs for the same wear date. Verify one day group contains all of them, ordered by entry time, newest first. Check entry times against the browser's local time zone and open outfit details. Backdate a log and verify its actual entry date remains visible. Expand history and confirm day groups are not split. Records without usable timestamps should display “Time unavailable.”
+
+### Check insights and demo data
+
+Verify the Most Worn Item gallery, category split, wardrobe utilization, forgotten-item reminders, and single-photo versus multi-photo outfit thumbnails. If using seeded records, remember that the usage history is synthetic and the clothing photos are illustrative demo assets.
+
+## Verify real CLIP inference
+
+A successful mocked test is not proof that real model inference works. Prepare the actual weights with the backfill command and verify inference produces 512 finite values, a vector norm approximately equal to one, and the expected model revision and preprocessing metadata. Repeat inference on the same image to check consistency.
+
+Test different photos of the same garment as well as visually similar but different garments, varied lighting, partial views, and unknown items. A photo matching itself is only a smoke check. Measure false matches, manual correction rates, and latency on a representative labeled set before making recognition accuracy claims or treating the provisional thresholds as production settings.
+
+Record actual command output and observed behavior when reporting results. This document does not guarantee a particular test count, coverage percentage, or passing result.

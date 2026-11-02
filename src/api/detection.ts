@@ -6,6 +6,11 @@ import { ClothingItem } from '../types';
  * Bbox fields are pixel coords in the original image; absent for manual entries.
  */
 export interface Detection extends ClothingItem {
+  // Set only when the backend explicitly recognizes an existing wardrobe item.
+  // Missing means manual resolution; do not infer recognition from YOLO confidence.
+  matchedItemId?: string | null;
+  matches?: { itemId: string; similarity: number }[];
+  matchingStatus?: 'matched' | 'ambiguous' | 'no_match' | 'no_candidates' | 'invalid_crop' | 'unavailable';
   confidence?: number;
   bbox_x?: number;
   bbox_y?: number;
