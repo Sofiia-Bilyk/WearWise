@@ -47,3 +47,37 @@ test('new detections start a fresh queue without carrying previous decisions', (
   assert.equal(isDraftReady(previous), true);
   assert.equal(beginDraft([item('d2')], [])[0].resolution, null);
 });
+
+test('retry reuses a successfully created item after a later save failure', () => {
+  let draft = resolveDraft(beginDraft([item('d1'), item('d2')], []), 'd1', {
+    kind: 'new', item: item('first-choice'),
+  });
+  draft = resolveDraft(draft, 'd2', { kind: 'new', item: item('second-choice') });
+
+  // The first creation succeeded, but the next request failed.
+  const created = item('saved-7');
+  draft = resolveDraft(draft, 'd1', { kind: 'existing', itemId: created.id });
+  const retry = buildSavePlan(draft, [created]);
+
+  assert.deepEqual(retry.map(entry => [entry.kind, entry.item.id]), [
+    ['existing', 'saved-7'], ['new', 'second-choice'],
+  ]);
+});
+
+test('retry keeps a replacement new choice even when the earlier created item is available', () => {
+  const created = item('saved-7');
+  let draft = resolveDraft(beginDraft([item('d1')], []), 'd1', {
+    kind: 'existing', itemId: created.id,
+  });
+
+  // After an outfit save failed, the user changes the same row to a new garment.
+  draft = resolveDraft(draft, 'd1', null);
+  const replacement = { ...item('replacement'), name: 'Replacement coat', image: 'replacement-photo' };
+  draft = resolveDraft(draft, 'd1', { kind: 'new', item: replacement });
+  const retry = buildSavePlan(draft, [created]);
+
+  assert.equal(retry[0].detectionId, 'd1');
+  assert.equal(retry[0].kind, 'new');
+  assert.deepEqual(retry[0].item, replacement);
+  assert.notEqual(retry[0].item.id, created.id);
+});

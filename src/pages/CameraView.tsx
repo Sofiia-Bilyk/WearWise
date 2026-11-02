@@ -82,7 +82,10 @@ export const CameraView: React.FC = () => {
       for (const entry of plan) {
         let item = entry.item;
         if (entry.kind === 'new') {
-          item = savedItems.current.get(entry.detectionId) ?? await addItem(entry.item);
+          // A new choice must create the currently selected garment.
+          // Successful creations become existing choices, so unchanged
+          // retries reuse their IDs through the save plan.
+          item = await addItem(entry.item);
           savedItems.current.set(entry.detectionId, item);
           draft.resolve(entry.detectionId, { kind: 'existing', itemId: item.id });
         }
