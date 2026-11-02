@@ -11,7 +11,9 @@ import { useCameraCapture } from '../hooks/useCameraCapture';
 import { useImageUpload } from '../hooks/useImageUpload';
 import { useDetection } from '../hooks/useDetection';
 import { useGarmentResolution } from '../hooks/useGarmentResolution';
-import { buildSavePlan } from '../state/garmentResolution';
+import { outfitsApi } from '../api/outfits';
+import { prepareSubmission, saveReceipt, readReceipt, clearReceipt } from '../state/outfitSubmission';
+import type { OutfitSubmission } from '../state/outfitSubmission';
 
 const today = () => {
   const date = new Date();
@@ -21,7 +23,7 @@ type Selection = { kind: 'wardrobe' | 'new'; detectionId: string | null } | null
 
 /** Detect -> identify unmatched crops -> review draft -> confirm the daily log. */
 export const CameraView: React.FC = () => {
-  const { wardrobe, addOutfit, addItem } = useWardrobe();
+  const { wardrobe, applySavedSubmission } = useWardrobe();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedDate, setSelectedDate] = useState(today);
   const [selection, setSelection] = useState<Selection>(null);
@@ -31,8 +33,10 @@ export const CameraView: React.FC = () => {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [capturedFile, setCapturedFile] = useState<File | null>(null);
   const savingRef = useRef(false);
-  // Remember successfully created items if a later request fails during saving.
-  const savedItems = useRef(new Map<string, ClothingItem>());
+  const pendingSubmission = useRef<{ payload: OutfitSubmission; photo: File | null } | null>(null);
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [isRecovering, setIsRecovering] = useState(true);
+  const draftLocked = isLogging || isRecovering || pendingKey !== null;
   const detector = useDetection();
   const draft = useGarmentResolution();
   const wardrobeRef = useRef(wardrobe);
@@ -40,61 +44,121 @@ export const CameraView: React.FC = () => {
   const currentDateValid = /^\d{4}-\d{2}-\d{2}$/.test(selectedDate);
 
   const runDetection = async (image: string) => {
-    if (savingRef.current) return;
-    draft.reset(); setSelection(null); savedItems.current.clear();
+    if (savingRef.current || draftLocked) return;
+    draft.reset(); setSelection(null);
     setIsLogSuccess(false); setLogError('');
     const detections = await detector.runDetection(image);
     if (detections) draft.begin(detections, wardrobeRef.current);
   };
   const upload = useImageUpload(runDetection);
   const camera = useCameraCapture((dataUrl, file) => {
-    if (savingRef.current) return;
+    if (savingRef.current || draftLocked) return;
     upload.reset(); setCapturedFile(file); setCapturedImage(dataUrl);
     void runDetection(dataUrl);
   });
   const outfitFile = upload.uploadedFile ?? capturedFile;
   const previewImage = upload.uploadedImage || capturedImage;
 
-  // Changing accounts must not leave another account's draft or photo visible.
   const { user } = useAuth();
-  const accountId = useRef(user?.id);
+  const activeAccount = useRef(user?.id);
+  activeAccount.current = user?.id;
+
+  // On refresh only the account-scoped receipt survives. Resolve it before
+  // allowing a new draft; cancellation blocks any delayed original request.
   useEffect(() => {
-    if (accountId.current !== user?.id) { accountId.current = user?.id; handleRetry(); }
+    let active = true;
+    pendingSubmission.current = null;
+    draft.reset(); detector.resetDetection(); upload.reset();
+    setSelection(null); setCapturedFile(null); setCapturedImage(null);
+    setIsLogSuccess(false); setLogError(''); setPendingKey(null);
+    if (!user) { setIsRecovering(false); return; }
+    const account = user.id;
+    setIsRecovering(true);
+    const recover = async () => {
+      try {
+        const key = readReceipt(account);
+        if (!key) return;
+        if (active) setPendingKey(key);
+        const resolution = await outfitsApi.resolveSubmission(key);
+        if (!active) return;
+        if (resolution.status === 'saved' && resolution.result) {
+          applySavedSubmission(resolution.result);
+          setIsLogSuccess(true);
+        } else if (resolution.status !== 'cancelled') {
+          throw new Error('The previous save is still pending. Check again before starting another log.');
+        }
+        clearReceipt(account);
+        setPendingKey(null);
+      } catch (error) {
+        if (active) setLogError(error instanceof Error ? error.message : 'Could not recover the previous save.');
+        // A blocked receipt store must not silently disable retry protection.
+        if (active) setPendingKey(previous => previous ?? 'storage-unavailable');
+      } finally {
+        if (active) setIsRecovering(false);
+      }
+    };
+    void recover();
+    return () => { active = false; };
   }, [user?.id]);
 
   function handleRetry() {
-    if (savingRef.current) return;
+    if (savingRef.current || draftLocked) return;
     detector.resetDetection(); draft.reset(); upload.reset();
-    setSelection(null); savedItems.current.clear();
+    setSelection(null); pendingSubmission.current = null;
     setCapturedFile(null); setCapturedImage(null); setLogError(''); setIsLogSuccess(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
   const handleLogOutfit = async () => {
-    if (savingRef.current || detector.isDetecting || isLogSuccess) return;
-    if (!currentDateValid) { setLogError('Choose a date for this daily log.'); return; }
+    if (savingRef.current || isRecovering || detector.isDetecting || isLogSuccess || !user) return;
+    const account = user.id;
+    savingRef.current = true; setIsLogging(true); setLogError('');
     try {
-      // Validate every choice before creating any wardrobe entries.
-      const knownItems = [...wardrobe, ...savedItems.current.values()];
-      const plan = buildSavePlan(draft.garments, knownItems);
-      savingRef.current = true; setIsLogging(true); setLogError('');
-      const realItems: ClothingItem[] = [];
-      for (const entry of plan) {
-        let item = entry.item;
-        if (entry.kind === 'new') {
-          // A new choice must create the currently selected garment.
-          // Successful creations become existing choices, so unchanged
-          // retries reuse their IDs through the save plan.
-          item = await addItem(entry.item);
-          savedItems.current.set(entry.detectionId, item);
-          draft.resolve(entry.detectionId, { kind: 'existing', itemId: item.id });
-        }
-        realItems.push(item);
+      if (!pendingSubmission.current) {
+        if (pendingKey) throw new Error('Check the previous save before starting another log.');
+        const payload = prepareSubmission(draft.garments, wardrobe, selectedDate, crypto.randomUUID());
+        // Store the receipt before sending any network request.
+        saveReceipt(account, payload.submissionId);
+        pendingSubmission.current = { payload, photo: outfitFile };
+        setPendingKey(payload.submissionId);
       }
-      await addOutfit([...new Map(realItems.map(item => [item.id, item])).values()], selectedDate, outfitFile);
-      setIsLogSuccess(true);
+      const attempt = pendingSubmission.current;
+      const result = await outfitsApi.submit(attempt.payload, attempt.photo);
+      if (activeAccount.current !== account) return;
+      applySavedSubmission(result);
+      clearReceipt(account);
+      pendingSubmission.current = null; setPendingKey(null); setIsLogSuccess(true);
     } catch (error: unknown) {
-      setLogError(error instanceof Error ? error.message : 'Could not save the daily log. Please try again.');
+      if (activeAccount.current === account) setLogError(error instanceof Error ? error.message : 'Could not confirm saving. Retry or check save status.');
+    } finally {
+      savingRef.current = false; setIsLogging(false);
+    }
+  };
+
+  const handleCheckSave = async () => {
+    if (savingRef.current || !user) return;
+    const account = user.id;
+    savingRef.current = true; setIsLogging(true); setLogError('');
+    try {
+      const key = pendingSubmission.current?.payload.submissionId ?? readReceipt(account);
+      if (!key) {
+        pendingSubmission.current = null;
+        setPendingKey(null);
+        return;
+      }
+      const resolution = await outfitsApi.resolveSubmission(key);
+      if (activeAccount.current !== account) return;
+      if (resolution.status === 'saved' && resolution.result) {
+        applySavedSubmission(resolution.result); setIsLogSuccess(true);
+      } else if (resolution.status !== 'cancelled') {
+        throw new Error('The save is still pending. Check again shortly.');
+      } else {
+        setLogError('The previous attempt was not saved. You can edit and confirm your draft again.');
+      }
+      clearReceipt(account);
+      pendingSubmission.current = null; setPendingKey(null);
+    } catch (error) {
+      if (activeAccount.current === account) setLogError(error instanceof Error ? error.message : 'Could not check saving.');
     } finally {
       savingRef.current = false; setIsLogging(false);
     }
@@ -104,11 +168,13 @@ export const CameraView: React.FC = () => {
     ? draft.garments.find(row => row.detection.id === selection.detectionId) : null;
   const initialItem = target?.resolution?.kind === 'new' ? target.resolution.item : target?.detection;
   const selectExisting = (item: ClothingItem) => {
+    if (draftLocked) return;
     if (selection?.detectionId) draft.resolve(selection.detectionId, { kind: 'existing', itemId: item.id });
     else draft.append(item, true);
     setSelection(null);
   };
   const confirmNew = (item: ClothingItem) => {
+    if (draftLocked) return;
     if (selection?.detectionId) draft.resolve(selection.detectionId, { kind: 'new', item });
     else draft.append(item, false);
     setSelection(null);
@@ -116,12 +182,13 @@ export const CameraView: React.FC = () => {
   const displayItems = draft.garments.map(row => {
     const choice = row.resolution;
     const item = choice?.kind === 'existing'
-      ? wardrobe.find(item => item.id === choice.itemId) ?? savedItems.current.get(row.detection.id) ?? row.detection
+      ? wardrobe.find(item => item.id === choice.itemId) ?? row.detection
       : choice?.kind === 'new' ? choice.item : row.detection;
     // Actions address the stable detection ID, not the selected wardrobe ID.
     return { ...item, id: row.detection.id };
   });
   const changeItem = (id: string) => {
+    if (draftLocked) return;
     const row = draft.garments.find(row => row.detection.id === id);
     if (row?.resolution?.kind === 'new') setSelection({ kind: 'new', detectionId: id });
     else draft.reconsider(id);
@@ -135,7 +202,7 @@ export const CameraView: React.FC = () => {
         isDetecting={detector.isDetecting} isLogSuccess={isLogSuccess}
         detectedItems={draft.garments.map(row => row.detection)} apiError={detector.apiError}
         conversionError={upload.conversionError} noDetectionMsg={detector.noDetectionMsg}
-        disabled={isLogging || isLogSuccess}
+        disabled={draftLocked || isLogSuccess}
         onStartCamera={camera.startCamera} onCapture={camera.captureFrame}
         onUploadClick={() => fileInputRef.current?.click()}
         onFileChange={upload.handleFileUpload} onRetry={handleRetry}
@@ -143,7 +210,9 @@ export const CameraView: React.FC = () => {
       <DetectionPanel selectedDate={selectedDate} onDateChange={setSelectedDate}
         detectedItems={displayItems} garments={draft.garments}
         isDetecting={detector.isDetecting} isLogSuccess={isLogSuccess} isLogging={isLogging}
-        canSubmit={draft.canSubmit && currentDateValid} unresolvedCount={draft.unresolvedCount}
+        canSubmit={draft.canSubmit && currentDateValid}
+        draftLocked={draftLocked} hasPendingSave={pendingKey !== null} canRetrySave={pendingSubmission.current !== null}
+        onCheckSave={handleCheckSave} unresolvedCount={draft.unresolvedCount}
         hasPreviewImage={!!previewImage} logError={logError}
         onChangeItem={changeItem} onRemoveItem={draft.remove} onResume={draft.resume}
         onUploadClick={() => fileInputRef.current?.click()}
@@ -151,7 +220,7 @@ export const CameraView: React.FC = () => {
         onCreateBlank={() => setSelection({ kind: 'new', detectionId: null })}
         onLogOutfit={handleLogOutfit} onRetry={handleRetry}
       />
-      {draft.currentGarment && !selection && !isLogging && !isLogSuccess && (
+      {draft.currentGarment && !selection && !draftLocked && !isLogSuccess && (
         <UnrecognizedGarmentModal key={draft.currentGarment.detection.id}
           item={draft.currentGarment.detection} remainingCount={draft.unresolvedCount}
           onFindInWardrobe={() => setSelection({ kind: 'wardrobe', detectionId: draft.currentGarment!.detection.id })}

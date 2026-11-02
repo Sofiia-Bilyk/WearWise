@@ -23,7 +23,9 @@ WearWise helps you track what you wear, rediscover your wardrobe, and understand
 5. Review the completed draft and select the day the outfit was worn.
 6. Confirm the whole log to save it.
 
-New items are created when you confirm the final draft. The draft stays in browser memory; refreshing or leaving the page discards it.
+New items, their outfit links, and the outfit are saved together when you confirm the final draft. A failed transaction saves none of those records. Repeating the same submission reuses its result instead of creating duplicates.
+
+If a connection fails, the draft stays locked while you retry the same save or select **Check save status**. That check either recovers the saved log or cancels the attempt before you edit and submit again. A small account-scoped receipt survives refreshes in the same browser tab; photos and draft details are not stored in that receipt. After refresh, WearWise checks the receipt before allowing another camera log. An unsaved draft itself does not survive refreshes.
 
 ## Understanding your history
 

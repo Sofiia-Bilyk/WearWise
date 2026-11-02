@@ -41,7 +41,15 @@ Use `--force` after changing model weights or preprocessing. `EMBEDDING_MODEL_RE
 
 The frontend keeps the draft in memory. Each unresolved crop is handled in sequence; canceling a selection returns to that crop, and identification can be paused and resumed while the draft remains open. Final confirmation requires every remaining crop to be resolved.
 
-Existing item IDs are reused and duplicate item links are removed. New items are created before the outfit through separate API requests. Successfully created IDs are retained within the open draft for retries, but saving is not atomic or fully idempotent across network failures and page refreshes. Partial failures can leave newly created items without an outfit.
+The camera sends the full confirmed draft and optional photo to `POST /outfit-submissions`. Existing IDs are reused and deduplicated. New items, embeddings/status, outfit, links, and a durable submission receipt share one database commit. Validation rejects unavailable, archived, or foreign items rather than silently omitting them.
+
+Each submission has a UUID unique within the account and a fingerprint of its JSON and original photo bytes. Retries with the same content return the stored response; changed content using the same key returns HTTP 409. A database unique constraint arbitrates competing requests. Transient database failures return a retryable error without relaxing uniqueness.
+
+New photos are bounded, decoded, stripped of metadata, and converted to JPEG in an attempt-owned staging area. They are published before the database commit; handled failures remove attempt-owned files. An uncertain commit acknowledgement is checked against the durable receipt before cleanup. If the database cannot confirm the outcome, files are retained. A process crash can still leave orphan files: filesystem operations and SQLite do not share a transaction, and automatic orphan cleanup is not implemented.
+
+The browser retains the exact pending request in memory and an account-scoped submission ID in session storage. Editing is locked while the outcome is uncertain. Retrying uses the same snapshot and ID. **Check save status**, also used after a refresh, calls `POST /outfit-submissions/<id>/resolve`: it either returns the saved response or commits a cancellation receipt. This cancellation prevents a delayed original request from saving after the UI starts another attempt. Only the receipt survives refreshes, not unsaved photos or the draft. Recovery requires the same account and browser-tab storage; blocked storage prevents sending a new camera submission.
+
+Responses are merged by ID instead of incrementing counts on replay. A background refresh obtains current statistics because a historical receipt may predate subsequent logs or edits. The wardrobe **Log Wear** shortcut uses the same submission endpoint and receipt protection, with a disabled button during saving and visible success/retry feedback. An unresolved shortcut save can also be recovered through **Log a look**. The older `/outfits` endpoint remains available for compatibility; current UI saving flows use submission receipts.
 
 ## Outfit history
 
@@ -65,6 +73,8 @@ History groups logs by wear date, then sorts entries by their actual entry time,
 | `wearwise_app/services/garment_matching.py` | Compatible-vector comparison and ranking |
 | `wearwise_app/services/detection_matching.py` | Owner-scoped detection matching |
 | `wearwise_app/embedding_commands.py` | Explicit embedding backfill command |
+| `wearwise_app/services/outfit_submission.py` | Atomic saves, validated staged photos, retry receipts, and cancellation |
+| `src/state/outfitSubmission.ts` | Submission snapshots, receipt storage, and replay-safe merging |
 | `migrations/` | Database migrations |
 | `scripts/` | Demo seeding and real-photo replacement |
 | `tests/` | Backend and frontend logic tests |

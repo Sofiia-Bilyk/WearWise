@@ -137,6 +137,18 @@ class Outfit(UserOwnedModel):
     )
 
 
+class OutfitSubmission(UserOwnedModel):
+    """Durable, account-scoped receipt; committed with the complete outfit."""
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'submission_id', name='uq_outfit_submission_user_key'),
+    )
+    submission_id = db.Column(db.String(36), nullable=False)
+    fingerprint = db.Column(db.String(64), nullable=True)
+    status = db.Column(db.String(16), nullable=False)
+    response = db.Column(db.JSON, nullable=True)
+    user = db.relationship('User', backref=db.backref('submissions', cascade='all, delete-orphan'))
+
+
 class OutfitItem(BaseModel):
     """Junction row linking an :class:`Outfit` to one of its :class:`Item` s.
 

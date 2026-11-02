@@ -3,6 +3,8 @@ import type { ClothingItem } from '../types';
 import type { DraftGarment } from '../state/garmentResolution';
 
 interface Props {
+  draftLocked?: boolean; hasPendingSave?: boolean; canRetrySave?: boolean;
+  onCheckSave?: () => void;
   selectedDate: string; onDateChange: (date: string) => void;
   detectedItems: ClothingItem[]; garments: DraftGarment[];
   isDetecting: boolean; isLogSuccess: boolean; isLogging: boolean;
@@ -15,8 +17,8 @@ interface Props {
 /** A reviewable daily draft. Only the final confirmation writes the outfit. */
 export function DetectionPanel(props: Props) {
   const { detectedItems, garments, isDetecting, isLogging, isLogSuccess } = props;
-  const busy = isLogging || isDetecting;
-  const canLog = props.canSubmit && !busy && !isLogSuccess;
+  const busy = isLogging || isDetecting || props.draftLocked;
+  const canLog = !isLogging && !isDetecting && !isLogSuccess && (props.hasPendingSave ? props.canRetrySave : props.canSubmit && !busy);
   return (
     <section aria-label="Daily log draft" className="w-full lg:w-[420px] shrink-0 bg-stone-50 border-l border-stone-200 flex flex-col min-h-[420px] lg:h-full relative z-10 shadow-xl">
       <header className="px-6 pt-5 pb-3">
@@ -68,12 +70,14 @@ export function DetectionPanel(props: Props) {
         )}
       </div>
       {!isLogSuccess && <footer className="px-6 py-4 border-t border-stone-200">
+        {props.hasPendingSave && <p className="mb-3 text-xs text-stone-600">A save is awaiting confirmation. Retry the same log or check its status before editing.</p>}
         {props.logError && <p role="alert" className="mb-3 text-xs text-red-600">{props.logError}</p>}
         <div className="flex gap-2">
-          {(props.hasPreviewImage || detectedItems.length > 0) && <button type="button" disabled={isLogging} onClick={props.onRetry} className="rounded-lg px-3 py-3 bg-stone-200 text-xs disabled:opacity-40">Retry</button>}
+          {(props.hasPreviewImage || detectedItems.length > 0) && <button type="button" disabled={!!busy} onClick={props.onRetry} className="rounded-lg px-3 py-3 bg-stone-200 text-xs disabled:opacity-40">Retry</button>}
+          {props.hasPendingSave && <button type="button" disabled={isLogging} onClick={props.onCheckSave} className="rounded-lg px-3 py-3 bg-stone-200 text-xs disabled:opacity-40">Check save status</button>}
           <button type="button" disabled={!canLog} onClick={props.onLogOutfit}
             className="flex-1 rounded-lg px-3 py-3 bg-primary-500 text-white text-xs font-semibold disabled:bg-stone-200 disabled:text-stone-400 flex items-center justify-center gap-2">
-            {isLogging ? <><Loader2 size={14} className="animate-spin" />Saving…</> : 'Confirm daily log'}
+            {isLogging ? <><Loader2 size={14} className="animate-spin" />Saving…</> : props.hasPendingSave ? 'Retry saving' : 'Confirm daily log'}
           </button>
         </div>
       </footer>}

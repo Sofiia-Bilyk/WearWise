@@ -56,7 +56,15 @@ Upload a photo containing multiple unidentified crops. Confirm only one identifi
 
 ### Check final confirmation
 
-Before confirming, verify that a proposed new item has not yet been created in the wardrobe. Confirm the complete outfit, refresh, and verify persistence. Check that existing items were reused and repeated selections produced only one link per item in the outfit. Test a failed save and retry, accounting for the documented limitation that separate item and outfit requests are not atomic.
+Before confirming, verify that a proposed new item has not yet been created in the wardrobe. Confirm the complete outfit, refresh, and verify persistence. Check that existing items were reused and repeated selections produced only one link per item in the outfit. Interrupt a save and retry the same attempt: it should reuse the saved result, with no duplicate items, outfits, or wear-count increments. While the outcome is uncertain, editing should be disabled. Use **Check save status** to recover success or cancel the attempt before editing. Refresh with a pending receipt and verify recovery runs before another camera log can begin.
+
+Focused transactional-save checks:
+
+```powershell
+python -m pytest tests/test_outfit_submissions.py -v
+```
+
+These cover mixed-item saves, ownership/archival validation, rollback, staged-file cleanup, lost commit acknowledgements, duplicate requests, conflicts, account-scoped receipts, cancellation of late requests, and parallel requests against a temporary file-backed SQLite database. Frontend submission tests cover snapshotting, receipt isolation, and replay-safe merging. Browser interaction checks remain manual.
 
 ### Check history
 
