@@ -6,24 +6,46 @@ export function useCameraCapture(onFrame: (dataUrl: string, file: File) => void)
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [permissionError, setPermissionError] = useState(false);
 
-  const startCamera = async () => {
+  const activeStream = useRef<MediaStream | null>(null);
+  const mounted = useRef(false);
+  const cameraRequest = useRef(0);
+
+  const stopCamera = useCallback(() => {
+    activeStream.current?.getTracks().forEach(track => track.stop());
+    activeStream.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    if (!mounted.current) return;
+    const requestId = ++cameraRequest.current;
+    stopCamera();
+    setStream(null);
     setPermissionError(false);
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Permission can resolve after navigation or a newer camera request.
+      if (!mounted.current || requestId !== cameraRequest.current) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      activeStream.current = mediaStream;
       setStream(mediaStream);
       if (videoRef.current) videoRef.current.srcObject = mediaStream;
     } catch {
-      setPermissionError(true);
+      if (mounted.current && requestId === cameraRequest.current) setPermissionError(true);
     }
-  };
+  }, [stopCamera]);
 
   useEffect(() => {
-    startCamera();
+    mounted.current = true;
+    void startCamera();
     return () => {
-      if (stream) stream.getTracks().forEach(t => t.stop());
+      mounted.current = false;
+      cameraRequest.current++;
+      stopCamera();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [startCamera, stopCamera]);
 
   const captureFrame = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;

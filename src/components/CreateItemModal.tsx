@@ -6,7 +6,7 @@ interface CreateItemModalProps {
   initialItem?: ClothingItem;
   title?: string;
   submitLabel?: string;
-  onCreateItem: (item: ClothingItem) => void;
+  onCreateItem: (item: ClothingItem) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -22,6 +22,9 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
     cost: initialItem?.cost?.toString() ?? '',
   });
   const [imagePreview, setImagePreview] = useState<string | null>(initialItem?.image || null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const savingRef = useRef(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -43,8 +46,8 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
     reader.readAsDataURL(file);
   };
 
-  const handleCreate = () => {
-    if (!form.name.trim() || (form.cost && (!Number.isFinite(Number(form.cost)) || Number(form.cost) < 0))) return;
+  const handleCreate = async () => {
+    if (savingRef.current || !form.name.trim() || (form.cost && (!Number.isFinite(Number(form.cost)) || Number(form.cost) < 0))) return;
     const newItem: ClothingItem = {
       id: `item-${Date.now()}`,
       name: form.name.trim(),
@@ -57,17 +60,28 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
       cost: form.cost ? parseFloat(form.cost) : undefined,
       addedDate: new Date().toISOString().split('T')[0],
     };
-    onCreateItem(newItem);
+    savingRef.current = true;
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      // The parent closes the form only after the server confirms creation.
+      await onCreateItem(newItem);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save this item.');
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   return (
-    <dialog ref={dialogRef} aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onClose(); }} className="w-[calc(100%_-_2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto rounded-3xl bg-white p-0 backdrop:bg-stone-900/60">
+    <dialog ref={dialogRef} aria-labelledby={titleId} aria-busy={isSaving} onCancel={event => { event.preventDefault(); if (!savingRef.current) onClose(); }} className="w-[calc(100%_-_2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto rounded-3xl bg-white p-0 backdrop:bg-stone-900/60">
       <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-stone-200">
         <div className="p-8 border-b border-stone-100 flex items-center justify-between">
           <h3 id={titleId} className="text-2xl font-serif italic text-stone-900">{title}</h3>
-          <button type="button" aria-label="Cancel item form" onClick={onClose} className="text-stone-400 hover:text-stone-900"><X size={24} /></button>
+          <button type="button" aria-label="Cancel item form" disabled={isSaving} onClick={onClose} className="text-stone-400 hover:text-stone-900"><X size={24} /></button>
         </div>
-        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+        <fieldset disabled={isSaving} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8 min-w-0">
           <div className="space-y-6">
             <div>
               <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Item Name</label>
@@ -160,16 +174,17 @@ export const CreateItemModal: React.FC<CreateItemModalProps> = ({ onCreateItem, 
             </div>
           </div>
           <div className="md:col-span-2">
+            {saveError && <p role="alert" className="mb-3 text-sm text-red-600">{saveError}</p>}
             <button
               type="button"
-              disabled={!form.name.trim() || (!!form.cost && (!Number.isFinite(Number(form.cost)) || Number(form.cost) < 0))}
+              disabled={isSaving || !form.name.trim() || (!!form.cost && (!Number.isFinite(Number(form.cost)) || Number(form.cost) < 0))}
               onClick={handleCreate}
               className="w-full py-4 bg-stone-900 text-white text-xs font-bold uppercase tracking-widest hover:bg-primary-600 transition-colors rounded-xl shadow-xl shadow-stone-900/10"
             >
-              {submitLabel}
+              {isSaving ? 'Saving…' : saveError ? 'Retry save' : submitLabel}
             </button>
           </div>
-        </div>
+        </fieldset>
       </div>
     </dialog>
   );
