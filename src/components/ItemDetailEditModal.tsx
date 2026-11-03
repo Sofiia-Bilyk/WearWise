@@ -12,7 +12,7 @@ interface ItemDetailEditModalProps {
   onClose: () => void;
   onSelectRecommendation: (id: string) => void;
   onLogWear: (item: ClothingItem) => Promise<void>;
-  onSave: (item: ClothingItem) => void;
+  onSave: (item: ClothingItem) => void | Promise<void>;
 }
 
 interface EditForm {
@@ -47,6 +47,9 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
   onSave,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const savingRef = useRef(false);
   const [isLoggingWear, setIsLoggingWear] = useState(false);
   const [wearSaved, setWearSaved] = useState(false);
   const [wearError, setWearError] = useState('');
@@ -70,17 +73,29 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
     setIsEditing(true);
   };
 
-  const handleSave = () => {
-    onSave({
-      ...item,
-      name: form.name,
-      category: form.category,
-      color: form.color,
-      cost: form.cost ? parseFloat(form.cost) : undefined,
-      postponedUntil: form.postponedUntil || undefined,
-      image: form.image,
-    });
-    setIsEditing(false);
+  const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      await onSave({
+        ...item,
+        name: form.name,
+        category: form.category,
+        color: form.color,
+        cost: form.cost ? parseFloat(form.cost) : undefined,
+        postponedUntil: form.postponedUntil || undefined,
+        image: form.image,
+      });
+      // A failed request leaves the entered values available for retry.
+      setIsEditing(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save your changes.');
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   const displayedImage = (isEditing ? form.image : item.image) || '/placeholder-garment.svg';
@@ -89,6 +104,7 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
+      aria-busy={isSaving}
       aria-labelledby="item-detail-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-100/80 backdrop-blur-md animate-in fade-in duration-300"
     >
@@ -96,6 +112,7 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
         {/* Single close control consolidated after the 3rd user interview. */}
         <button
           onClick={onClose}
+          disabled={isSaving}
           aria-label="Close item details"
           className="absolute top-3 right-3 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-white/80 backdrop-blur-sm text-stone-600 hover:bg-white hover:text-stone-900 shadow-sm transition-colors"
         >
@@ -105,11 +122,11 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
         <ItemImagePanel
           imageSrc={displayedImage}
           altText={item.name}
-          isEditing={isEditing}
+          isEditing={isEditing && !isSaving}
           onImageSelected={(dataUrl) => setForm((prev) => ({ ...prev, image: dataUrl }))}
         />
 
-        <div className="w-full md:w-1/2 p-6 flex flex-col">
+        <fieldset disabled={isSaving} className="w-full md:w-1/2 p-6 flex flex-col min-w-0">
           <div className="flex justify-between items-start mb-4">
             <div className="w-full">
               {isEditing ? (
@@ -184,6 +201,7 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
           </div>
 
           {wearError && <p role="alert" className="mt-3 text-xs text-red-600">{wearError}</p>}
+          {saveError && <p role="alert" className="mt-3 text-xs text-red-600">{saveError}</p>}
           {wearSaved && <p role="status" className="mt-3 text-xs text-primary-600">Wear logged successfully.</p>}
           <div className="flex gap-4 mt-4 pt-4 border-t border-stone-200">
             <button
@@ -198,7 +216,7 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
                 onClick={handleSave}
                 className="px-6 py-2.5 bg-stone-900 text-white text-xs font-bold uppercase tracking-widest hover:bg-primary-600 transition-colors"
               >
-                Save
+                {isSaving ? 'Saving…' : saveError ? 'Retry save' : 'Save'}
               </button>
             ) : (
               <button
@@ -209,7 +227,7 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
               </button>
             )}
           </div>
-        </div>
+        </fieldset>
       </div>
     </div>
   );

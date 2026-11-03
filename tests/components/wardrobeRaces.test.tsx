@@ -181,6 +181,8 @@ for (const kind of ['edit', 'add', 'remove', 'postpone'] as Kind[]) {
       if (order === 'write-first') await act(async () => { writing = mutation.start(); });
       await act(async () => { assert.equal(wardrobe.applySavedSubmission(savedResult(), 1), true); });
       if (order === 'refresh-first') await act(async () => { writing = mutation.start(); });
+      // Only the already-issued read is stale; reconciliation sees committed data.
+      modules.itemsApi.list = async () => structuredClone(serverItems[serverAccount]);
       await act(async () => { mutation.finish(); await writing; });
       mutation.verify();
       await act(async () => pendingRefresh.resolve(stale));
@@ -225,6 +227,7 @@ test('a pending edit invalidates an older refresh even when that edit fails', as
   await act(async () => { writing = wardrobe.updateItem(wardrobe.wardrobe[0]).catch(error => { caught = error; }); });
   await act(async () => pendingRefresh.resolve(stale));
   assert.equal(wardrobe.wardrobe.find(item => item.id === '11')?.wearCount, 1);
+  modules.itemsApi.list = async () => structuredClone(serverItems[serverAccount]);
   await act(async () => { pendingWrite.reject(failure); await writing; });
   assert.equal(caught, failure);
   assert.equal(wardrobe.loading, false);
@@ -260,4 +263,62 @@ test('late wardrobe shortcut response preserves a newer camera receipt', async (
   modules.receipts.saveReceipt(1, 'newer-camera-attempt');
   await act(async () => { pending.resolve(savedResult()); await saving; });
   assert.equal(modules.receipts.readReceipt(1), 'newer-camera-attempt');
+});
+
+for (const order of ['initial-first', 'write-first'] as const) {
+  test(`creation during initial loading restores existing items and history (${order})`, async () => {
+    const initial = deferred<any[]>();
+    const creating = deferred<any>();
+    let lists = 0;
+    serverOutfits[2] = [{ id: '902', date: '2026-11-01', items: ['21'] }];
+    modules.itemsApi.list = () => ++lists === 1 ? initial.promise : Promise.resolve(structuredClone(serverItems[2]));
+    modules.itemsApi.create = () => creating.promise;
+    await switchToB();
+    assert.equal(wardrobe.loading, true);
+    const added = apiItem('22', 'B new shirt');
+    let writing: Promise<any>;
+    await act(async () => { writing = wardrobe.addItem(modules.adapters.apiItemToClothing(added)); });
+    if (order === 'initial-first') await act(async () => initial.resolve([apiItem('21')]));
+    await act(async () => { serverItems[2].push(added); creating.resolve(added); await writing; });
+    if (order === 'write-first') await act(async () => initial.resolve([apiItem('21')]));
+    assert.deepEqual(wardrobe.wardrobe.map(item => item.id).sort(), ['21', '22']);
+    assert.deepEqual(wardrobe.outfits.map(outfit => outfit.id), ['902']);
+    assert.equal(wardrobe.loading, false);
+    assert.equal(lists, 2);
+  });
+}
+
+test('a failed write during initial loading still restores the existing wardrobe', async () => {
+  const initial = deferred<any[]>(); const creating = deferred<any>(); let lists = 0;
+  modules.itemsApi.list = () => ++lists === 1 ? initial.promise : Promise.resolve(structuredClone(serverItems[2]));
+  modules.itemsApi.create = () => creating.promise;
+  await switchToB();
+  let failure: unknown;
+  let writing: Promise<any>;
+  await act(async () => { writing = wardrobe.addItem(modules.adapters.apiItemToClothing(apiItem('22'))).catch(error => { failure = error; }); });
+  await act(async () => { creating.reject(new Error('Creation failed')); await writing; });
+  await act(async () => initial.resolve([]));
+  assert.ok(failure instanceof Error);
+  assert.deepEqual(wardrobe.wardrobe.map(item => item.id), ['21']);
+  assert.equal(wardrobe.loading, false);
+});
+
+test('overlapping writes reconcile once after both writes settle', async () => {
+  const adding = deferred<any>(); const editing = deferred<any>(); let lists = 0;
+  modules.itemsApi.list = async () => { lists++; return structuredClone(serverItems[1]); };
+  modules.itemsApi.create = () => adding.promise;
+  modules.itemsApi.update = () => editing.promise;
+  let add: Promise<any>; let edit: Promise<void>;
+  const added = apiItem('13', 'New item');
+  const edited = { ...serverItems[1][0], name: 'Edited item' };
+  await act(async () => {
+    add = wardrobe.addItem(modules.adapters.apiItemToClothing(added));
+    edit = wardrobe.updateItem(modules.adapters.apiItemToClothing(edited));
+  });
+  await act(async () => { serverItems[1].push(added); adding.resolve(added); await add; });
+  assert.equal(lists, 0);
+  await act(async () => { serverItems[1][0] = edited; editing.resolve(edited); await edit; });
+  assert.equal(lists, 1);
+  assert.equal(wardrobe.wardrobe.find(item => item.id === '11')?.name, 'Edited item');
+  assert.equal(wardrobe.wardrobe.find(item => item.id === '13')?.name, 'New item');
 });

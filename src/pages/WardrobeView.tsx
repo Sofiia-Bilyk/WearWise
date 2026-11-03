@@ -80,8 +80,8 @@ export const WardrobeView: React.FC = () => {
 
       {isCreating && (
         <CreateItemModal
-          onCreateItem={(newItem) => {
-            addItem(newItem);
+          onCreateItem={async (newItem) => {
+            await addItem(newItem);
             setIsCreating(false);
           }}
           onClose={() => setIsCreating(false)}

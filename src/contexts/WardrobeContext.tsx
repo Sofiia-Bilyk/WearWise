@@ -48,52 +48,69 @@ export const WardrobeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setLoading(false);
   }, []);
 
+  const pendingWrites = useRef(new Map<number, number>());
+
+  const refreshWardrobe = useCallback(async (account: number) => {
+    if (!isCurrentAccount(account)) return;
+    const version = ++refreshVersion.current;
+    setLoading(true);
+    try {
+      const [items, apiOutfits] = await Promise.all([itemsApi.list(), outfitsApi.list()]);
+      // Reads taken during a write can contain an incomplete server snapshot.
+      if (!isCurrentAccount(account) || refreshVersion.current !== version ||
+          (pendingWrites.current.get(account) ?? 0) > 0) return;
+      setWardrobe(previous => isCurrentAccount(account) ? items.map(apiItemToClothing) : previous);
+      setOutfits(previous => isCurrentAccount(account) ? apiOutfits.map(apiOutfitToOutfit) : previous);
+    } catch (error) {
+      console.error('Could not refresh wardrobe:', error);
+    } finally {
+      if (isCurrentAccount(account) && refreshVersion.current === version) setLoading(false);
+    }
+  }, [isCurrentAccount]);
+
+  const beginWardrobeWrite = useCallback((account: number) => {
+    pendingWrites.current.set(account, (pendingWrites.current.get(account) ?? 0) + 1);
+    invalidateRefreshes();
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      const remaining = (pendingWrites.current.get(account) ?? 1) - 1;
+      if (remaining > 0) pendingWrites.current.set(account, remaining);
+      else pendingWrites.current.delete(account);
+      if (!isCurrentAccount(account)) return;
+      invalidateRefreshes();
+      // Recover the full wardrobe after overlapping writes settle, even if a
+      // write failed or invalidated the account's initial load.
+      if (remaining === 0) void refreshWardrobe(account);
+    };
+  }, [invalidateRefreshes, isCurrentAccount, refreshWardrobe]);
+
   // Clear the previous account even if the new account's initial fetch fails.
   useEffect(() => {
-    let active = true;
     const account = user?.id;
-    const version = ++refreshVersion.current;
+    refreshVersion.current++;
     setWardrobe([]);
     setOutfits([]);
-    if (account === undefined) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    Promise.all([itemsApi.list(), outfitsApi.list()])
-      .then(([items, apiOutfits]) => {
-        if (!active || !isCurrentAccount(account) || version !== refreshVersion.current) return;
-        setWardrobe(previous => isCurrentAccount(account) ? items.map(apiItemToClothing) : previous);
-        setOutfits(previous => isCurrentAccount(account) ? apiOutfits.map(apiOutfitToOutfit) : previous);
-      })
-      .catch(console.error)
-      .finally(() => {
-        if (active && isCurrentAccount(account) && version === refreshVersion.current) setLoading(false);
-      });
-    return () => { active = false; };
-  }, [user?.id, isCurrentAccount]);
+    if (account === undefined) setLoading(false);
+    else void refreshWardrobe(account);
+    return () => { refreshVersion.current++; };
+  }, [user?.id, refreshWardrobe]);
 
   const applySavedSubmission = useCallback((result: SubmissionResult, originatingAccount: number): boolean => {
     // The provider survives camera navigation. A camera-local ref may be stale
     // after unmount, so enforce ownership here before *any* shared-state update.
     if (!isCurrentAccount(originatingAccount)) return false;
-    const version = ++refreshVersion.current;
+    refreshVersion.current++;
     setOutfits(previous => isCurrentAccount(originatingAccount)
       ? mergeById(previous, [apiOutfitToOutfit(result.outfit)]) : previous);
     setWardrobe(previous => isCurrentAccount(originatingAccount)
       ? mergeById(previous, result.items.map(apiItemToClothing)) : previous);
 
-    // Receipts describe the original save. Fetch current statistics, but never
-    // let an older snapshot overwrite a subsequent wardrobe write.
-    void Promise.all([itemsApi.list(), outfitsApi.list()]).then(([items, outfits]) => {
-      if (!isCurrentAccount(originatingAccount) || refreshVersion.current !== version) return;
-      setWardrobe(previous => isCurrentAccount(originatingAccount) ? items.map(apiItemToClothing) : previous);
-      setOutfits(previous => isCurrentAccount(originatingAccount) ? outfits.map(apiOutfitToOutfit) : previous);
-    }).catch(console.error).finally(() => {
-      if (isCurrentAccount(originatingAccount) && refreshVersion.current === version) setLoading(false);
-    });
+    // Receipt items are historical; reconcile with current server statistics.
+    void refreshWardrobe(originatingAccount);
     return true;
-  }, [isCurrentAccount]);
+  }, [isCurrentAccount, refreshWardrobe]);
 
   // Wardrobe Log Wear uses the same endpoint and receipt protection as camera
   // confirmation. Failed attempts keep their exact UUID until retried/resolved.
@@ -137,7 +154,7 @@ export const WardrobeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateItem = useCallback(async (updatedItem: ClothingItem) => {
     const account = user?.id;
     if (!isCurrentAccount(account)) throw new Error('Sign in before editing an item.');
-    invalidateRefreshes();
+    const finishWrite = beginWardrobeWrite(account);
     try {
       const apiItem = await itemsApi.update(updatedItem.id, {
         name: updatedItem.name, category: updatedItem.category, color: updatedItem.color,
@@ -150,14 +167,14 @@ export const WardrobeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       // Also invalidate reads started while the write was pending, including
       // failed writes whose server outcome may not be known to this client.
-      if (isCurrentAccount(account)) invalidateRefreshes();
+      finishWrite();
     }
-  }, [user?.id, isCurrentAccount, invalidateRefreshes]);
+  }, [user?.id, isCurrentAccount, beginWardrobeWrite]);
 
   const addItem = useCallback(async (newItem: ClothingItem): Promise<ClothingItem> => {
     const account = user?.id;
     if (!isCurrentAccount(account)) throw new Error('Sign in before adding an item.');
-    invalidateRefreshes();
+    const finishWrite = beginWardrobeWrite(account);
     try {
       const apiItem = await itemsApi.create({
         name: newItem.name, category: newItem.category, color: newItem.color,
@@ -170,27 +187,27 @@ export const WardrobeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       return clothingItem;
     } finally {
-      if (isCurrentAccount(account)) invalidateRefreshes();
+      finishWrite();
     }
-  }, [user?.id, isCurrentAccount, invalidateRefreshes]);
+  }, [user?.id, isCurrentAccount, beginWardrobeWrite]);
 
   const removeItem = useCallback(async (id: string) => {
     const account = user?.id;
     if (!isCurrentAccount(account)) throw new Error('Sign in before removing an item.');
-    invalidateRefreshes();
+    const finishWrite = beginWardrobeWrite(account);
     try {
       await itemsApi.remove(id);
       if (!isCurrentAccount(account)) return;
       setWardrobe(previous => isCurrentAccount(account) ? previous.filter(item => item.id !== id) : previous);
     } finally {
-      if (isCurrentAccount(account)) invalidateRefreshes();
+      finishWrite();
     }
-  }, [user?.id, isCurrentAccount, invalidateRefreshes]);
+  }, [user?.id, isCurrentAccount, beginWardrobeWrite]);
 
   const postponeItem = useCallback(async (itemId: string, date: string) => {
     const account = user?.id;
     if (!isCurrentAccount(account)) return;
-    invalidateRefreshes();
+    const finishWrite = beginWardrobeWrite(account);
     try {
       const apiItem = await itemsApi.update(itemId, { postponedUntil: date });
       if (!isCurrentAccount(account)) return;
@@ -200,9 +217,9 @@ export const WardrobeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } catch (error) {
       console.error('Failed to postpone item reminder:', error);
     } finally {
-      if (isCurrentAccount(account)) invalidateRefreshes();
+      finishWrite();
     }
-  }, [user?.id, isCurrentAccount, invalidateRefreshes]);
+  }, [user?.id, isCurrentAccount, beginWardrobeWrite]);
 
   return (
     <WardrobeContext.Provider value={{ wardrobe, outfits, loading, applySavedSubmission, addOutfit, updateItem, addItem, removeItem, postponeItem }}>
