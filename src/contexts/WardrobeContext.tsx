@@ -13,7 +13,7 @@ interface WardrobeContextType {
   wardrobe: ClothingItem[];
   outfits: Outfit[];
   loading: boolean;
-  applySavedSubmission: (result: SubmissionResult) => void;
+  applySavedSubmission: (result: SubmissionResult, originatingAccount: number) => boolean;
   addOutfit: (items: ClothingItem[], date: string, image?: File | null) => Promise<void>;
   updateItem: (item: ClothingItem) => Promise<void>;
   addItem: (item: ClothingItem) => Promise<ClothingItem>;
@@ -33,50 +33,75 @@ export const WardrobeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   accountRef.current = user?.id;
   const refreshVersion = useRef(0);
 
-  // Load wardrobe + outfits whenever the user logs in
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; refreshVersion.current++; };
+  }, []);
+
+  const isCurrentAccount = useCallback((account: number | undefined): account is number =>
+    mounted.current && account !== undefined && accountRef.current === account, []);
+
+  const invalidateRefreshes = useCallback(() => {
+    refreshVersion.current++;
+    // An invalidated initial/background load must not leave loading stuck true.
+    setLoading(false);
+  }, []);
+
+  // Clear the previous account even if the new account's initial fetch fails.
   useEffect(() => {
     let active = true;
+    const account = user?.id;
     const version = ++refreshVersion.current;
-    if (!user) {
-      setWardrobe([]);
-      setOutfits([]);
+    setWardrobe([]);
+    setOutfits([]);
+    if (account === undefined) {
+      setLoading(false);
       return;
     }
     setLoading(true);
     Promise.all([itemsApi.list(), outfitsApi.list()])
       .then(([items, apiOutfits]) => {
-        if (!active || version !== refreshVersion.current) return;
-        setWardrobe(items.map(apiItemToClothing));
-        setOutfits(apiOutfits.map(apiOutfitToOutfit));
+        if (!active || !isCurrentAccount(account) || version !== refreshVersion.current) return;
+        setWardrobe(previous => isCurrentAccount(account) ? items.map(apiItemToClothing) : previous);
+        setOutfits(previous => isCurrentAccount(account) ? apiOutfits.map(apiOutfitToOutfit) : previous);
       })
       .catch(console.error)
-      .finally(() => { if (active && version === refreshVersion.current) setLoading(false); });
+      .finally(() => {
+        if (active && isCurrentAccount(account) && version === refreshVersion.current) setLoading(false);
+      });
     return () => { active = false; };
-  }, [user]);
+  }, [user?.id, isCurrentAccount]);
 
-  const applySavedSubmission = useCallback((result: SubmissionResult) => {
-    setOutfits(previous => mergeById(previous, [apiOutfitToOutfit(result.outfit)]));
-    setWardrobe(previous => mergeById(previous, result.items.map(apiItemToClothing)));
-    // Durable receipts describe the original save. Fetch current statistics
-    // after replay so later wear logs or item edits are not replaced by history.
-    const account = accountRef.current;
+  const applySavedSubmission = useCallback((result: SubmissionResult, originatingAccount: number): boolean => {
+    // The provider survives camera navigation. A camera-local ref may be stale
+    // after unmount, so enforce ownership here before *any* shared-state update.
+    if (!isCurrentAccount(originatingAccount)) return false;
     const version = ++refreshVersion.current;
+    setOutfits(previous => isCurrentAccount(originatingAccount)
+      ? mergeById(previous, [apiOutfitToOutfit(result.outfit)]) : previous);
+    setWardrobe(previous => isCurrentAccount(originatingAccount)
+      ? mergeById(previous, result.items.map(apiItemToClothing)) : previous);
+
+    // Receipts describe the original save. Fetch current statistics, but never
+    // let an older snapshot overwrite a subsequent wardrobe write.
     void Promise.all([itemsApi.list(), outfitsApi.list()]).then(([items, outfits]) => {
-      if (accountRef.current !== account || refreshVersion.current !== version) return;
-      setWardrobe(items.map(apiItemToClothing));
-      setOutfits(outfits.map(apiOutfitToOutfit));
+      if (!isCurrentAccount(originatingAccount) || refreshVersion.current !== version) return;
+      setWardrobe(previous => isCurrentAccount(originatingAccount) ? items.map(apiItemToClothing) : previous);
+      setOutfits(previous => isCurrentAccount(originatingAccount) ? outfits.map(apiOutfitToOutfit) : previous);
     }).catch(console.error).finally(() => {
-      if (accountRef.current === account && refreshVersion.current === version) setLoading(false);
+      if (isCurrentAccount(originatingAccount) && refreshVersion.current === version) setLoading(false);
     });
-  }, []);
+    return true;
+  }, [isCurrentAccount]);
 
   // Wardrobe Log Wear uses the same endpoint and receipt protection as camera
   // confirmation. Failed attempts keep their exact UUID until retried/resolved.
   const quickSave = useRef<{ account: number; signature: string; payload: OutfitSubmission;
     photo: File | null; inFlight: boolean } | null>(null);
   const addOutfit = useCallback(async (items: ClothingItem[], date: string, image?: File | null) => {
-    if (!user) throw new Error('Sign in before logging wear.');
-    const account = user.id;
+    const account = user?.id;
+    if (!isCurrentAccount(account)) throw new Error('Sign in before logging wear.');
     const ids = [...new Set(items.map(item => item.id))].sort();
     const signature = JSON.stringify({ ids, date });
     const receipt = readReceipt(account);
@@ -99,7 +124,7 @@ export const WardrobeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const result = await outfitsApi.submit(attempt.payload, attempt.photo);
       if (accountRef.current !== account) return;
-      applySavedSubmission(result);
+      if (!applySavedSubmission(result, account)) return;
       clearReceipt(account);
       quickSave.current = null;
     } catch (error) {
@@ -107,51 +132,77 @@ export const WardrobeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       attempt.inFlight = false;
     }
-  }, [user?.id, applySavedSubmission]);
+  }, [user?.id, applySavedSubmission, isCurrentAccount]);
 
   const updateItem = useCallback(async (updatedItem: ClothingItem) => {
-    const apiItem = await itemsApi.update(updatedItem.id, {
-      name: updatedItem.name,
-      category: updatedItem.category,
-      color: updatedItem.color,
-      brand: updatedItem.brand,
-      cost: updatedItem.cost,
-      image: updatedItem.image,
-      postponedUntil: updatedItem.postponedUntil ?? null,
-    });
-    setWardrobe(prev => prev.map(item => item.id === updatedItem.id ? apiItemToClothing(apiItem) : item));
-  }, []);
+    const account = user?.id;
+    if (!isCurrentAccount(account)) throw new Error('Sign in before editing an item.');
+    invalidateRefreshes();
+    try {
+      const apiItem = await itemsApi.update(updatedItem.id, {
+        name: updatedItem.name, category: updatedItem.category, color: updatedItem.color,
+        brand: updatedItem.brand, cost: updatedItem.cost, image: updatedItem.image,
+        postponedUntil: updatedItem.postponedUntil ?? null,
+      });
+      if (!isCurrentAccount(account)) return;
+      setWardrobe(previous => isCurrentAccount(account)
+        ? previous.map(item => item.id === updatedItem.id ? apiItemToClothing(apiItem) : item) : previous);
+    } finally {
+      // Also invalidate reads started while the write was pending, including
+      // failed writes whose server outcome may not be known to this client.
+      if (isCurrentAccount(account)) invalidateRefreshes();
+    }
+  }, [user?.id, isCurrentAccount, invalidateRefreshes]);
 
   const addItem = useCallback(async (newItem: ClothingItem): Promise<ClothingItem> => {
-    const apiItem = await itemsApi.create({
-      name: newItem.name,
-      category: newItem.category,
-      color: newItem.color,
-      brand: newItem.brand,
-      cost: newItem.cost,
-      image: newItem.image,
-    });
-    const clothingItem = apiItemToClothing(apiItem);
-    setWardrobe(prev => [clothingItem, ...prev]);
-    return clothingItem;
-  }, []);
+    const account = user?.id;
+    if (!isCurrentAccount(account)) throw new Error('Sign in before adding an item.');
+    invalidateRefreshes();
+    try {
+      const apiItem = await itemsApi.create({
+        name: newItem.name, category: newItem.category, color: newItem.color,
+        brand: newItem.brand, cost: newItem.cost, image: newItem.image,
+      });
+      const clothingItem = apiItemToClothing(apiItem);
+      if (isCurrentAccount(account)) {
+        setWardrobe(previous => isCurrentAccount(account)
+          ? mergeById(previous, [clothingItem]) : previous);
+      }
+      return clothingItem;
+    } finally {
+      if (isCurrentAccount(account)) invalidateRefreshes();
+    }
+  }, [user?.id, isCurrentAccount, invalidateRefreshes]);
 
   const removeItem = useCallback(async (id: string) => {
-    await itemsApi.remove(id);
-    setWardrobe(prev => prev.filter(item => item.id !== id));
-  }, []);
+    const account = user?.id;
+    if (!isCurrentAccount(account)) throw new Error('Sign in before removing an item.');
+    invalidateRefreshes();
+    try {
+      await itemsApi.remove(id);
+      if (!isCurrentAccount(account)) return;
+      setWardrobe(previous => isCurrentAccount(account) ? previous.filter(item => item.id !== id) : previous);
+    } finally {
+      if (isCurrentAccount(account)) invalidateRefreshes();
+    }
+  }, [user?.id, isCurrentAccount, invalidateRefreshes]);
 
-  // Persists a "remind me later" date so the item drops out of the
-  // forgotten-items list until the chosen date.
   const postponeItem = useCallback(async (itemId: string, date: string) => {
+    const account = user?.id;
+    if (!isCurrentAccount(account)) return;
+    invalidateRefreshes();
     try {
       const apiItem = await itemsApi.update(itemId, { postponedUntil: date });
+      if (!isCurrentAccount(account)) return;
       const clothingItem = apiItemToClothing(apiItem);
-      setWardrobe(prev => prev.map(item => item.id === itemId ? clothingItem : item));
-    } catch (err) {
-      console.error('Failed to postpone item reminder:', err);
+      setWardrobe(previous => isCurrentAccount(account)
+        ? previous.map(item => item.id === itemId ? clothingItem : item) : previous);
+    } catch (error) {
+      console.error('Failed to postpone item reminder:', error);
+    } finally {
+      if (isCurrentAccount(account)) invalidateRefreshes();
     }
-  }, []);
+  }, [user?.id, isCurrentAccount, invalidateRefreshes]);
 
   return (
     <WardrobeContext.Provider value={{ wardrobe, outfits, loading, applySavedSubmission, addOutfit, updateItem, addItem, removeItem, postponeItem }}>

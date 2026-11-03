@@ -83,7 +83,7 @@ export const CameraView: React.FC = () => {
         const resolution = await outfitsApi.resolveSubmission(key);
         if (!active) return;
         if (resolution.status === 'saved' && resolution.result) {
-          applySavedSubmission(resolution.result);
+          if (!applySavedSubmission(resolution.result, account)) return;
           setIsLogSuccess(true);
         } else if (resolution.status !== 'cancelled') {
           throw new Error('The previous save is still pending. Check again before starting another log.');
@@ -126,7 +126,7 @@ export const CameraView: React.FC = () => {
       const attempt = pendingSubmission.current;
       const result = await outfitsApi.submit(attempt.payload, attempt.photo);
       if (activeAccount.current !== account) return;
-      applySavedSubmission(result);
+      if (!applySavedSubmission(result, account)) return;
       clearReceipt(account);
       pendingSubmission.current = null; setPendingKey(null); setIsLogSuccess(true);
     } catch (error: unknown) {
@@ -150,7 +150,8 @@ export const CameraView: React.FC = () => {
       const resolution = await outfitsApi.resolveSubmission(key);
       if (activeAccount.current !== account) return;
       if (resolution.status === 'saved' && resolution.result) {
-        applySavedSubmission(resolution.result); setIsLogSuccess(true);
+        if (!applySavedSubmission(resolution.result, account)) return;
+        setIsLogSuccess(true);
       } else if (resolution.status !== 'cancelled') {
         throw new Error('The save is still pending. Check again shortly.');
       } else {
