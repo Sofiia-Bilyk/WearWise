@@ -54,7 +54,7 @@ function SavePage() {
     // Deliberately no component-local cancellation: the surviving provider must
     // enforce the boundary even when this page is already unmounted.
     accepted = applySavedSubmission(result, account);
-    if (accepted) modules.receipts.clearReceipt(account);
+    if (accepted) modules.receipts.clearReceipt(account, 'pending-save');
   };
   return <button onClick={() => void start()}>Start delayed save</button>;
 }
@@ -239,4 +239,25 @@ test('late quick-save completion remains account-scoped', async () => {
   await act(async () => { pending.resolve(savedResult()); await saving; });
   assert.deepEqual(wardrobe.wardrobe.map(item => item.id), ['21']);
   assert.deepEqual(wardrobe.outfits, []);
+});
+
+
+test('successful wardrobe saves clear their receipt and allow another wear log', async () => {
+  await act(async () => { await wardrobe.addOutfit([wardrobe.wardrobe[0]], '2026-11-02'); });
+  assert.equal(modules.receipts.readReceipt(1), null);
+  await act(async () => { await wardrobe.addOutfit([wardrobe.wardrobe[0]], '2026-11-03'); });
+  assert.equal(modules.receipts.readReceipt(1), null);
+});
+
+test('late wardrobe shortcut response preserves a newer camera receipt', async () => {
+  const pending = deferred<any>();
+  modules.outfitsApi.submit = () => pending.promise;
+  let saving: Promise<void>;
+  await act(async () => { saving = wardrobe.addOutfit([wardrobe.wardrobe[0]], '2026-11-02'); });
+  const original = modules.receipts.readReceipt(1);
+  assert.ok(original);
+  assert.equal(modules.receipts.clearReceipt(1, original), true);
+  modules.receipts.saveReceipt(1, 'newer-camera-attempt');
+  await act(async () => { pending.resolve(savedResult()); await saving; });
+  assert.equal(modules.receipts.readReceipt(1), 'newer-camera-attempt');
 });

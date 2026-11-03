@@ -43,14 +43,14 @@ const result = (submissionId: string) => ({ submissionId,
   outfit: { id: '901', date: '2026-11-02', items: ['11'], imagePath: null }, items: [item] });
 
 before(async () => {
-  const [reactDom, auth, wardrobe, camera, authApi, itemsApi, outfitsApi, receipts] = await Promise.all([
+  const [reactDom, auth, wardrobe, assistant, camera, authApi, itemsApi, outfitsApi, assistantApi, receipts] = await Promise.all([
     import('react-dom/client'), import('../../src/contexts/AuthContext'), import('../../src/contexts/WardrobeContext'),
-    import('../../src/pages/CameraView'),
+    import('../../src/contexts/OutfitAssistantContext'), import('../../src/pages/CameraView'),
     import('../../src/api/auth'), import('../../src/api/items'), import('../../src/api/outfits'),
-    import('../../src/state/outfitSubmission'),
+    import('../../src/api/outfitAssistant'), import('../../src/state/outfitSubmission'),
   ]);
-  modules = { reactDom, auth, wardrobe, camera, authApi: authApi.authApi,
-    itemsApi: itemsApi.itemsApi, outfitsApi: outfitsApi.outfitsApi, receipts };
+  modules = { reactDom, auth, wardrobe, assistant, camera, authApi: authApi.authApi,
+    itemsApi: itemsApi.itemsApi, outfitsApi: outfitsApi.outfitsApi, assistantApi: assistantApi.outfitAssistantApi, receipts };
 });
 function Navigator() {
   const [visible, setVisible] = useState(true);
@@ -62,6 +62,7 @@ beforeEach(async () => {
   modules.authApi.me = async () => ({ user: { id: 1, email: 'camera@example.com', username: 'Camera test' } });
   modules.itemsApi.list = async () => { listCalls++; return [item]; };
   modules.outfitsApi.list = async () => [];
+  modules.assistantApi.status = async () => ({ aiReady: false, calendarReady: false, calendarConnected: false });
   modules.outfitsApi.submit = (payload: any) => {
     const pending = deferred<any>(); submits.push({ ...pending, id: payload.submissionId }); return pending.promise;
   };
@@ -69,7 +70,7 @@ beforeEach(async () => {
   container = dom.window.document.createElement('div'); dom.window.document.body.append(container);
   root = modules.reactDom.createRoot(container);
   await act(async () => root.render(<modules.auth.AuthProvider><modules.wardrobe.WardrobeProvider>
-    <Navigator />
+    <modules.assistant.OutfitAssistantProvider><Navigator /></modules.assistant.OutfitAssistantProvider>
   </modules.wardrobe.WardrobeProvider></modules.auth.AuthProvider>));
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
@@ -140,4 +141,14 @@ test('late automatic recovery leaves the newly mounted camera receipt intact', a
   await act(async () => pendingRecovery.resolve({ status: 'saved', result: result('old-recovery') }));
   assert.equal(modules.receipts.readReceipt(1), newer.id);
   await act(async () => newer.resolve(result(newer.id)));
+});
+
+
+test('successful camera save removes exactly its completed receipt', async () => {
+  await startLog();
+  const attempt = submits[0];
+  assert.equal(modules.receipts.readReceipt(1), attempt.id);
+  await act(async () => attempt.resolve(result(attempt.id)));
+  assert.equal(modules.receipts.readReceipt(1), null);
+  assert.match(container.textContent ?? '', /Daily log saved/);
 });

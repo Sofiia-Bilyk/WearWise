@@ -130,9 +130,9 @@ export const CameraView: React.FC = () => {
       }
       const attempt = pendingSubmission.current;
       const result = await outfitsApi.submit(attempt.payload, attempt.photo);
-      if (activeAccount.current !== account) return;
+      if (!pageMounted.current || activeAccount.current !== account) return;
       if (!applySavedSubmission(result, account)) return;
-      clearReceipt(account);
+      clearReceipt(account, attempt.payload.submissionId);
       pendingSubmission.current = null; setPendingKey(null); setIsLogSuccess(true);
     } catch (error: unknown) {
       if (pageMounted.current && activeAccount.current === account) setLogError(error instanceof Error ? error.message : 'Could not confirm saving. Retry or check save status.');

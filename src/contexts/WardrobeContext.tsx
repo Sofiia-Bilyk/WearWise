@@ -125,7 +125,7 @@ export const WardrobeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const result = await outfitsApi.submit(attempt.payload, attempt.photo);
       if (accountRef.current !== account) return;
       if (!applySavedSubmission(result, account)) return;
-      clearReceipt(account);
+      clearReceipt(account, attempt.payload.submissionId);
       quickSave.current = null;
     } catch (error) {
       throw new Error(`${error instanceof Error ? error.message : 'Could not confirm saving.'} Retry Log Wear, or open Log a look to check save status.`);
