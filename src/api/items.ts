@@ -15,12 +15,28 @@ export interface ApiItem {
   cost: number | null;
 }
 
+const ITEM_SAVE_TIMEOUT_MS = 30_000;
+
+async function saveItem(path: string, method: 'POST' | 'PUT', item: Partial<ApiItem>) {
+  const signal = AbortSignal.timeout(ITEM_SAVE_TIMEOUT_MS);
+
+  try {
+    return await request<ApiItem>(path, { method, body: JSON.stringify(item), signal });
+  } catch (error) {
+    if (signal.aborted) {
+      // The server may have saved the item before the response timed out.
+      throw new Error('The save timed out. Check your wardrobe before trying again.');
+    }
+    throw error;
+  }
+}
+
 export const itemsApi = {
   list: () => request<ApiItem[]>('/items'),
   create: (item: Partial<ApiItem>) =>
-    request<ApiItem>('/items', { method: 'POST', body: JSON.stringify(item) }),
+    saveItem('/items', 'POST', item),
   update: (id: string, item: Partial<ApiItem>) =>
-    request<ApiItem>(`/items/${id}`, { method: 'PUT', body: JSON.stringify(item) }),
+    saveItem(`/items/${id}`, 'PUT', item),
   remove: (id: string) =>
     request<{ message: string }>(`/items/${id}`, { method: 'DELETE' }),
 };
