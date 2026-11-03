@@ -66,6 +66,16 @@ def create_app(test_config=None):
     if not math.isfinite(margin) or not 0 <= margin <= 2:
         raise ValueError('MATCH_MIN_MARGIN must be between 0 and 2.')
 
+    # Assistant credentials are backend-only. Tests may explicitly override them.
+    for name, default in {
+        'ANTHROPIC_API_KEY': '', 'ANTHROPIC_WORKSPACE_ID': '',
+        'ANTHROPIC_MODEL': 'claude-sonnet-5-5',
+        'GOOGLE_CLIENT_ID': '', 'GOOGLE_CLIENT_SECRET': '',
+        'GOOGLE_REDIRECT_URI': 'http://localhost:3000/api/calendar/google/callback',
+        'CALENDAR_TOKEN_ENCRYPTION_KEY': '', 'FRONTEND_URL': 'http://localhost:3000',
+    }.items():
+        app.config.setdefault(name, os.environ.get(name, default))
+
     # ── Extensions ────────────────────────────────────────────────────────────────
     db.init_app(app)
     Migrate(app, db, render_as_batch=True)
@@ -107,6 +117,12 @@ def create_app(test_config=None):
     app.register_blueprint(outfits_bp)
     app.register_blueprint(detection_bp)
     app.register_blueprint(uploads_bp)
+    from .routes.outfit_assistant import assistant_bp, RedactCalendarCallback
+    app.register_blueprint(assistant_bp)
+    for access_logger in ('werkzeug', 'gunicorn.access'):
+        target = logging.getLogger(access_logger)
+        if not any(isinstance(filter, RedactCalendarCallback) for filter in target.filters):
+            target.addFilter(RedactCalendarCallback())
 
     from .embedding_commands import embeddings_cli
     app.cli.add_command(embeddings_cli)

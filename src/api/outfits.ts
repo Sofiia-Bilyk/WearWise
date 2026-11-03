@@ -1,4 +1,17 @@
 import { request } from './client';
+import type { ApiItem } from './items';
+import type { OutfitSubmission } from '../state/outfitSubmission';
+
+export interface SubmissionResult {
+  submissionId: string;
+  outfit: ApiOutfit;
+  items: ApiItem[];
+}
+
+export interface SubmissionResolution {
+  status: 'saved' | 'cancelled' | 'pending';
+  result: SubmissionResult | null;
+}
 
 export interface ApiOutfit {
   id: string;
@@ -9,6 +22,15 @@ export interface ApiOutfit {
 }
 
 export const outfitsApi = {
+  submit: (payload: OutfitSubmission, image?: File | null): Promise<SubmissionResult> => {
+    const form = new FormData();
+    form.append('payload', JSON.stringify(payload));
+    if (image) form.append('image', image);
+    return request<SubmissionResult>('/outfit-submissions', { method: 'POST', body: form, signal: AbortSignal.timeout(30000) });
+  },
+  resolveSubmission: (key: string) => request<SubmissionResolution>(
+    `/outfit-submissions/${encodeURIComponent(key)}/resolve`, { method: 'POST', body: '{}', signal: AbortSignal.timeout(30000) },
+  ),
   list: () => request<ApiOutfit[]>('/outfits'),
   create: (itemIds: string[], wornDate: string, image?: File | null): Promise<ApiOutfit> => {
     if (image) {

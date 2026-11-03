@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { X } from 'lucide-react';
 import { Category, ClothingItem } from '../types';
 import { ItemImagePanel } from './ItemImagePanel';
@@ -11,7 +11,7 @@ interface ItemDetailEditModalProps {
   categories: Category[];
   onClose: () => void;
   onSelectRecommendation: (id: string) => void;
-  onLogWear: (item: ClothingItem) => void;
+  onLogWear: (item: ClothingItem) => Promise<void>;
   onSave: (item: ClothingItem) => void;
 }
 
@@ -47,6 +47,22 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
   onSave,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [isLoggingWear, setIsLoggingWear] = useState(false);
+  const [wearSaved, setWearSaved] = useState(false);
+  const [wearError, setWearError] = useState('');
+  const loggingWear = useRef(false);
+  const handleLogWear = async () => {
+    if (loggingWear.current || wearSaved) return;
+    loggingWear.current = true; setIsLoggingWear(true); setWearError('');
+    try {
+      await onLogWear(item);
+      setWearSaved(true);
+    } catch (error) {
+      setWearError(error instanceof Error ? error.message : 'Could not confirm saving. Please retry.');
+    } finally {
+      loggingWear.current = false; setIsLoggingWear(false);
+    }
+  };
   const [form, setForm] = useState<EditForm>(() => buildInitialForm(item));
 
   const beginEditing = () => {
@@ -167,12 +183,15 @@ export const ItemDetailEditModal: React.FC<ItemDetailEditModalProps> = ({
             </div>
           </div>
 
+          {wearError && <p role="alert" className="mt-3 text-xs text-red-600">{wearError}</p>}
+          {wearSaved && <p role="status" className="mt-3 text-xs text-primary-600">Wear logged successfully.</p>}
           <div className="flex gap-4 mt-4 pt-4 border-t border-stone-200">
             <button
-              onClick={() => onLogWear(item)}
+              onClick={handleLogWear}
+              disabled={isLoggingWear || wearSaved}
               className="flex-1 py-2.5 bg-primary-500 text-white text-xs font-bold uppercase tracking-widest hover:bg-primary-600 transition-colors shadow-lg shadow-primary-500/20"
             >
-              Log Wear
+              {isLoggingWear ? 'Saving…' : wearSaved ? 'Wear logged' : wearError ? 'Retry Log Wear' : 'Log Wear'}
             </button>
             {isEditing ? (
               <button

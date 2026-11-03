@@ -96,9 +96,10 @@ export const WardrobeView: React.FC = () => {
           categories={EDITABLE_CATEGORIES}
           onClose={() => setSelectedItemId(null)}
           onSelectRecommendation={setSelectedItemId}
-          onLogWear={(item) => {
-            const today = new Date().toISOString().split('T')[0];
-            addOutfit([item], today);
+          onLogWear={async (item) => {
+            const now = new Date();
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            await addOutfit([item], today);
           }}
           onSave={(updated) => updateItem(updated)}
         />

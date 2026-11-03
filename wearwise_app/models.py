@@ -137,6 +137,18 @@ class Outfit(UserOwnedModel):
     )
 
 
+class OutfitSubmission(UserOwnedModel):
+    """Durable, account-scoped receipt; committed with the complete outfit."""
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'submission_id', name='uq_outfit_submission_user_key'),
+    )
+    submission_id = db.Column(db.String(36), nullable=False)
+    fingerprint = db.Column(db.String(64), nullable=True)
+    status = db.Column(db.String(16), nullable=False)
+    response = db.Column(db.JSON, nullable=True)
+    user = db.relationship('User', backref=db.backref('submissions', cascade='all, delete-orphan'))
+
+
 class OutfitItem(BaseModel):
     """Junction row linking an :class:`Outfit` to one of its :class:`Item` s.
 
@@ -182,3 +194,12 @@ class Reminder(BaseModel):
     remind_at = db.Column(db.DateTime, nullable=False)
     snoozed_until = db.Column(db.DateTime, nullable=True)
     is_sent = db.Column(db.Boolean, default=False)
+
+
+
+class GoogleCalendarConnection(db.Model):
+    """One encrypted Google OAuth credential record per WearWise account."""
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
+    encrypted_credentials = db.Column(db.Text, nullable=False)
+    user = db.relationship('User', backref=db.backref('google_calendar', uselist=False,
+        cascade='all, delete-orphan'))

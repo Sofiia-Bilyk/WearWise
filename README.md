@@ -12,6 +12,7 @@ WearWise helps you track what you wear, rediscover your wardrobe, and understand
 - Browse outfit history grouped by the day worn, with separate entry times within each day.
 - Explore a Most Worn Item gallery, wardrobe utilization, and category breakdowns.
 - Rediscover clothing not worn for more than 30 days and postpone reminders.
+- Open shared AI outfit suggestions from Log a look or the fourth Insights card, using weather, selected Google Calendar events, and forgotten items.
 - Keep wardrobe records associated with your signed-in account.
 
 ## How to log an outfit
@@ -23,7 +24,9 @@ WearWise helps you track what you wear, rediscover your wardrobe, and understand
 5. Review the completed draft and select the day the outfit was worn.
 6. Confirm the whole log to save it.
 
-New items are created when you confirm the final draft. The draft stays in browser memory; refreshing or leaving the page discards it.
+New items, their outfit links, and the outfit are saved together when you confirm the final draft. A failed transaction saves none of those records. Repeating the same submission reuses its result instead of creating duplicates.
+
+If a connection fails, the draft stays locked while you retry the same save or select **Check save status**. That check either recovers the saved log or cancels the attempt before you edit and submit again. A small account-scoped receipt survives refreshes in the same browser tab; photos and draft details are not stored in that receipt. After refresh, WearWise checks the receipt before allowing another camera log. An unsaved draft itself does not survive refreshes.
 
 ## Understanding your history
 
@@ -105,6 +108,13 @@ The seed creates 16 clearly labeled demo items across five categories and 24 out
 Seeding can be rerun without duplicating the marked demo records. Photo replacement preserves item IDs and outfit links. Both scripts create database backups before changing records and leave non-demo records intact. Photo sources and licensing links are listed in [demo-photo-sources.json](docs/demo-photo-sources.json).
 
 Downloaded photos live in the ignored uploads directory. A fresh checkout needs the replacement script to obtain them again. Demo usage history is synthetic; it is not customer data or evidence of recognition accuracy.
+
+## AI outfit assistance
+
+See [setup and data sharing](docs/OUTFIT_ASSISTANT.md) for Anthropic API credentials,
+Google Calendar OAuth, token encryption, weather, and the three recommendation
+signals. Credentials belong in the root `.env`, never frontend source. Opening a
+suggestion does not create a wear log or start a new paid model request.
 
 ## Technology
 
