@@ -1,4 +1,3 @@
-
 services:
   backend:
     build:
@@ -11,6 +10,14 @@ services:
       - SQLALCHEMY_DATABASE_URI=sqlite:////app/instance/database.db
       - ML_MODEL_FALLBACK=wearwise_app/yolov8n.pt
       - CORS_ORIGINS=http://localhost
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_WORKSPACE_ID=${ANTHROPIC_WORKSPACE_ID:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-5-5}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost/api/calendar/google/callback}
+      - CALENDAR_TOKEN_ENCRYPTION_KEY=${CALENDAR_TOKEN_ENCRYPTION_KEY:-}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
     volumes:
       - wearwise-db:/app/instance
       - wearwise-uploads:/app/wearwise_app/uploads

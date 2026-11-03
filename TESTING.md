@@ -29,6 +29,7 @@ python -m pytest tests/ --cov=wearwise_app --cov-report=html
 npm ci
 npm run lint
 npm run test:frontend
+npm run test:components
 npm run build:frontend
 ```
 
@@ -96,3 +97,33 @@ attempts. Native dialog/camera APIs are stubbed; these are not visual browser te
 Backend regressions use real multipart image data above 500 KB and verify that
 the bounded 32 MiB request/form-field and 10 MiB individual-photo limits remain
 enforced. Nginx accepts the same 32 MiB total limit as the submission endpoint.
+## Outfit assistant checks
+
+Run `python -m pytest tests/test_outfit_assistant.py -v`. These offline tests cover
+the three context signals, private-data minimization, owner-scoped candidates,
+forgotten thresholds/postponement, future logs, schema validation, stale/foreign
+IDs, weather coverage/units/cache, city-local dates, Google OAuth state/PKCE,
+encrypted tokens, refresh/revocation, and callback log redaction. No private
+calendar or paid model requests are needed by these tests.
+
+Manually verify both entry points, the fourth Insights card, one shared popup,
+city/date/event/dress-code controls, explicit consent, and the three-look gallery.
+Generate once, close the popup, switch pages, and reopen: no second model request
+should occur. Check account-switch isolation, wardrobe-change invalidation,
+missing-provider configuration, loading/error states, and narrow-screen scrolling.
+Confirm that recommendations never alter outfit history or wear counts.
+
+Real credentials, Google consent, and recommendation quality need a separate live
+check after configuring your own server keys; see [assistant setup](docs/OUTFIT_ASSISTANT.md).
+
+
+### Component verification
+
+`npm run test:components` exercises the real React providers and components in a
+virtual DOM. It verifies one shared recommendation result across the two entry
+points, four Insights summary cards, explicit consent/dress-code controls, logout
+isolation, and invalidation after wardrobe changes. Native dialog methods are
+stubbed there, so this does not verify browser focus trapping or visual layout.
+The browser test utility was unavailable during implementation; those visual and
+native-browser checks remain manual. An isolated HTTP fixture also verified three
+validated looks with one mocked model call and no outfit/wardrobe writes.
