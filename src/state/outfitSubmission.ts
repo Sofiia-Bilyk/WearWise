@@ -43,6 +43,11 @@ export function readReceipt(accountId: string | number): string | null {
   return sessionStorage.getItem(receiptKey(accountId));
 }
 
-export function clearReceipt(accountId: string | number) {
-  sessionStorage.removeItem(receiptKey(accountId));
+export function clearReceipt(accountId: string | number, expectedSubmissionId: string): boolean {
+  const key = receiptKey(accountId);
+  // Read and remove synchronously in the same tab. An older completion must
+  // never erase the recovery receipt belonging to a newer attempt.
+  if (sessionStorage.getItem(key) !== expectedSubmissionId) return false;
+  sessionStorage.removeItem(key);
+  return true;
 }

@@ -13,6 +13,7 @@ from ..services.outfit_service import OutfitService
 logger = logging.getLogger(__name__)
 
 outfits_bp = Blueprint("outfits", __name__)
+MAX_SUBMISSION_BYTES = 32 * 1024 * 1024
 
 
 @outfits_bp.route("/outfits", methods=["GET"])
@@ -70,7 +71,10 @@ def submit_outfit():
         return err
     # Enforce the total limit before parsing multipart or JSON, including
     # requests without Content-Length. Individual images are also bounded.
-    request.max_content_length = 32 * 1024 * 1024
+    request.max_content_length = MAX_SUBMISSION_BYTES
+    # The JSON form field contains base64 crops. Raise the field limit too,
+    # while keeping total request bytes and individual decoded images bounded.
+    request.max_form_memory_size = MAX_SUBMISSION_BYTES
     try:
         photo = None
         if request.mimetype == 'multipart/form-data':
