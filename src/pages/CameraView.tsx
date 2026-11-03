@@ -62,6 +62,11 @@ export const CameraView: React.FC = () => {
   const { user } = useAuth();
   const activeAccount = useRef(user?.id);
   activeAccount.current = user?.id;
+  const pageMounted = useRef(false);
+  useEffect(() => {
+    pageMounted.current = true;
+    return () => { pageMounted.current = false; };
+  }, []);
 
   // On refresh only the account-scoped receipt survives. Resolve it before
   // allowing a new draft; cancellation blocks any delayed original request.
@@ -80,14 +85,14 @@ export const CameraView: React.FC = () => {
         if (!key) return;
         if (active) setPendingKey(key);
         const resolution = await outfitsApi.resolveSubmission(key);
-        if (!active) return;
+        if (!active || !pageMounted.current) return;
         if (resolution.status === 'saved' && resolution.result) {
-          applySavedSubmission(resolution.result);
+          if (!applySavedSubmission(resolution.result, account)) return;
           setIsLogSuccess(true);
         } else if (resolution.status !== 'cancelled') {
           throw new Error('The previous save is still pending. Check again before starting another log.');
         }
-        clearReceipt(account);
+        clearReceipt(account, key);
         setPendingKey(null);
       } catch (error) {
         if (active) setLogError(error instanceof Error ? error.message : 'Could not recover the previous save.');
@@ -110,7 +115,7 @@ export const CameraView: React.FC = () => {
   }
 
   const handleLogOutfit = async () => {
-    if (savingRef.current || isRecovering || detector.isDetecting || isLogSuccess || !user) return;
+    if (!pageMounted.current || savingRef.current || isRecovering || detector.isDetecting || isLogSuccess || !user) return;
     const account = user.id;
     savingRef.current = true; setIsLogging(true); setLogError('');
     try {
@@ -124,19 +129,20 @@ export const CameraView: React.FC = () => {
       }
       const attempt = pendingSubmission.current;
       const result = await outfitsApi.submit(attempt.payload, attempt.photo);
-      if (activeAccount.current !== account) return;
-      applySavedSubmission(result);
-      clearReceipt(account);
+      if (!pageMounted.current || activeAccount.current !== account) return;
+      if (!applySavedSubmission(result, account)) return;
+      clearReceipt(account, attempt.payload.submissionId);
       pendingSubmission.current = null; setPendingKey(null); setIsLogSuccess(true);
     } catch (error: unknown) {
-      if (activeAccount.current === account) setLogError(error instanceof Error ? error.message : 'Could not confirm saving. Retry or check save status.');
+      if (pageMounted.current && activeAccount.current === account) setLogError(error instanceof Error ? error.message : 'Could not confirm saving. Retry or check save status.');
     } finally {
-      savingRef.current = false; setIsLogging(false);
+      savingRef.current = false;
+      if (pageMounted.current && activeAccount.current === account) setIsLogging(false);
     }
   };
 
   const handleCheckSave = async () => {
-    if (savingRef.current || !user) return;
+    if (!pageMounted.current || savingRef.current || !user) return;
     const account = user.id;
     savingRef.current = true; setIsLogging(true); setLogError('');
     try {
@@ -147,20 +153,22 @@ export const CameraView: React.FC = () => {
         return;
       }
       const resolution = await outfitsApi.resolveSubmission(key);
-      if (activeAccount.current !== account) return;
+      if (!pageMounted.current || activeAccount.current !== account) return;
       if (resolution.status === 'saved' && resolution.result) {
-        applySavedSubmission(resolution.result); setIsLogSuccess(true);
+        if (!applySavedSubmission(resolution.result, account)) return;
+        setIsLogSuccess(true);
       } else if (resolution.status !== 'cancelled') {
         throw new Error('The save is still pending. Check again shortly.');
       } else {
         setLogError('The previous attempt was not saved. You can edit and confirm your draft again.');
       }
-      clearReceipt(account);
+      clearReceipt(account, key);
       pendingSubmission.current = null; setPendingKey(null);
     } catch (error) {
-      if (activeAccount.current === account) setLogError(error instanceof Error ? error.message : 'Could not check saving.');
+      if (pageMounted.current && activeAccount.current === account) setLogError(error instanceof Error ? error.message : 'Could not check saving.');
     } finally {
-      savingRef.current = false; setIsLogging(false);
+      savingRef.current = false;
+      if (pageMounted.current && activeAccount.current === account) setIsLogging(false);
     }
   };
 

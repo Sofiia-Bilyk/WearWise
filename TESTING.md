@@ -81,3 +81,18 @@ A successful mocked test is not proof that real model inference works. Prepare t
 Test different photos of the same garment as well as visually similar but different garments, varied lighting, partial views, and unknown items. A photo matching itself is only a smoke check. Measure false matches, manual correction rates, and latency on a representative labeled set before making recognition accuracy claims or treating the provisional thresholds as production settings.
 
 Record actual command output and observed behavior when reporting results. This document does not guarantee a particular test count, coverage percentage, or passing result.
+
+
+## Saving race and multipart regressions
+
+```powershell
+npm run test:components
+python -m pytest tests/test_outfit_submissions.py -v
+```
+
+Component tests use a virtual DOM to check account boundaries, stale refreshes,
+actual camera unmount/recovery flows, and receipt cleanup that preserves newer
+attempts. Native dialog/camera APIs are stubbed; these are not visual browser tests.
+Backend regressions use real multipart image data above 500 KB and verify that
+the bounded 32 MiB request/form-field and 10 MiB individual-photo limits remain
+enforced. Nginx accepts the same 32 MiB total limit as the submission endpoint.

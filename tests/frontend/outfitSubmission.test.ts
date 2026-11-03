@@ -52,10 +52,36 @@ test('receipt storage is account scoped and contains no photo or draft', () => {
     saveReceipt(2, 'attempt-b');
     assert.equal(readReceipt(1), 'attempt-a');
     assert.equal(readReceipt(2), 'attempt-b');
-    clearReceipt(1);
+    assert.equal(clearReceipt(1, 'attempt-a'), true);
     assert.equal(readReceipt(1), null);
     assert.equal(readReceipt(2), 'attempt-b');
     assert.deepEqual([...store.values()], ['attempt-b']);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'sessionStorage', previous);
+    else Reflect.deleteProperty(globalThis, 'sessionStorage');
+  }
+});
+
+
+test('receipt cleanup matches both the account and completed submission', () => {
+  const store = new Map<string, string>();
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: {
+    setItem: (key: string, value: string) => store.set(key, value),
+    getItem: (key: string) => store.get(key) ?? null,
+    removeItem: (key: string) => store.delete(key),
+  } });
+  try {
+    assert.equal(clearReceipt(1, 'missing'), false);
+    saveReceipt(1, 'older');
+    saveReceipt(2, 'other-account');
+    saveReceipt(1, 'newer');
+    assert.equal(clearReceipt(1, 'older'), false);
+    assert.equal(readReceipt(1), 'newer');
+    assert.equal(readReceipt(2), 'other-account');
+    assert.equal(clearReceipt(1, 'newer'), true);
+    assert.equal(readReceipt(1), null);
+    assert.equal(clearReceipt(2, 'other-account'), true);
   } finally {
     if (previous) Object.defineProperty(globalThis, 'sessionStorage', previous);
     else Reflect.deleteProperty(globalThis, 'sessionStorage');

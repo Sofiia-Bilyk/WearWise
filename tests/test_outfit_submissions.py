@@ -297,3 +297,38 @@ def test_parallel_requests_use_one_file_database(tmp_path, monkeypatch):
         assert len(list(Path(app.config['UPLOAD_FOLDER']).glob('*.jpg'))) == 1
         db.session.remove()
         db.engine.dispose()
+
+
+
+def test_multipart_payload_above_default_form_limit_saves_and_replays(authenticated_client, uploads):
+    import json
+    import random
+    # Real incompressible image data, not padding in an unrelated JSON field.
+    raw_pixels = random.Random(2026).randbytes(400 * 350 * 3)
+    output = BytesIO()
+    Image.frombytes('RGB', (400, 350), raw_pixels).save(output, format='PNG')
+    data = payload()
+    data['entries'][0]['item']['image'] = 'data:image/png;base64,' + base64.b64encode(output.getvalue()).decode()
+    assert len(json.dumps(data).encode()) > 500_000
+    result = post(authenticated_client, data, image_bytes())
+    assert result.status_code == 200, result.json
+    assert counts() == (1, 1, 1, 1)
+    replayed = post(authenticated_client, data, image_bytes())
+    assert replayed.status_code == 200 and replayed.json == result.json
+    assert counts() == (1, 1, 1, 1)
+    assert len(list(uploads.glob('*.jpg'))) == 2
+
+
+def test_multipart_total_limit_remains_bounded(authenticated_client, uploads):
+    result = authenticated_client.post('/outfit-submissions', data={
+        'payload': 'x' * (32 * 1024 * 1024),
+        'image': (BytesIO(image_bytes()), 'photo.png'),
+    })
+    assert result.status_code == 413
+    assert counts() == (0, 0, 0, 0)
+
+
+def test_multipart_individual_photo_limit_remains_bounded(authenticated_client, uploads):
+    result = post(authenticated_client, payload(), b'x' * (service.MAX_IMAGE_BYTES + 1))
+    assert result.status_code == 400
+    assert counts() == (0, 0, 0, 0)
